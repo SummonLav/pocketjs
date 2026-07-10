@@ -14,7 +14,11 @@ set -euo pipefail
 
 cd "$(cd "$(dirname "$0")/.." && pwd)" # repo root
 ENTRY="${1:-aot/demo/game.tsx}"
-ROM="$PWD/aot/dist/pocket-town.gba"
+# ROM name follows the game's directory (aot/tidelight/game.tsx -> tidelight.gba);
+# the original demo keeps its historical pocket-town name.
+NAME="$(basename "$(dirname "$ENTRY")")"
+[ "$NAME" = "demo" ] && NAME="pocket-town"
+ROM="$PWD/aot/dist/$NAME.gba"
 
 echo "▸ Compiling $ENTRY → $ROM"
 bun aot/compiler/cli.ts build "$ENTRY" --out "$ROM"

@@ -20,7 +20,11 @@
     "play": "bash play.sh",
     "gen": "bun spec/gen-c.ts",
     "handcart": "bun test/handcart.ts",
-    "test": "bun run assets && bun test/e2e.ts"
+    "test": "bun run assets && bun test/e2e.ts",
+    "assets:tidelight": "bun tidelight/imagegen/build-assets.ts",
+    "build:tidelight": "bun run assets:tidelight && bun compiler/cli.ts build tidelight/game.tsx --out dist/tidelight.gba",
+    "play:tidelight": "bash play.sh aot/tidelight/game.tsx",
+    "test:tidelight": "bun run assets:tidelight && bun test/tidelight-e2e.ts"
   },
   "devDependencies": {
     "typescript": "^5"
