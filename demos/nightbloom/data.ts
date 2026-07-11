@@ -76,12 +76,14 @@ const SCENE_W = 256; // scenes are 256x128 (pow2), drawn at 480x240
 const SCENE_H = 128;
 
 const PLANT_STYLE =
-  "cute chibi fantasy plant creature for a pixel art garden defense game, glossy big eyes, " +
-  "clean thick outline, vivid colors against a dark night, single centered character, full body";
+  "adorable kawaii chibi plant creature for a pixel art garden defense game, huge sparkling eyes, " +
+  "tiny blushing cheeks, soft rounded shapes, pastel colors with a gentle night glow, " +
+  "clean thick outline, single centered character, full body";
 const FOE_STYLE =
-  "cute spooky little yokai spirit for a pixel art night defense game, chibi proportions, " +
-  "glowing accents, clean silhouette, single centered character, full body, walking";
-const SHOT_STYLE = "tiny pixel art game projectile icon, clean silhouette, centered, glowing";
+  "adorable kawaii chibi yokai spirit for a pixel art night defense game, plump rounded body, " +
+  "big shiny puppy eyes, tiny stubby limbs, blushing cheeks, more cute than scary, " +
+  "glowing pastel accents, clean silhouette, single centered character, full body, walking";
+const SHOT_STYLE = "tiny cute pixel art game projectile icon, rounded kawaii shape, soft glow, clean silhouette, centered";
 
 // ---------------------------------------------------------------------------
 // The roster — the five pilotable plant forms
@@ -460,12 +462,12 @@ function foeArt(def: FoeDef, stagePrompts: [string, string, string], baseSeed: n
 export const ART: ArtEntry[] = [
   // --- plants (32x32, transparent, face east) -----------------------------
   ...plantArt(PLANTS.primrose, [
-    "small silver-blue moonflower sprout in a mossy clay pot, petals half open, drowsy gentle smile",
+    "small round silver-blue moonflower sprout in a mossy clay pot, petals half open, sleepy sweet smile",
     "the same moonflower in radiant full bloom, silver petals wide, serene smile, soft moonlight halo",
     "the same moonflower ascended, ring of floating petals, bright crescent halo crown, tiny stars",
   ], 1010),
   ...plantArt(PLANTS.bamboo, [
-    "young jade bamboo shoot with a determined face, leaf arms holding one tiny dart",
+    "chubby young jade bamboo shoot with a determined cute face, little leaf arms hugging one tiny dart",
     "the same bamboo grown into an archer, crossbow-like leaf arms drawn, focused eyes, jade green",
     "the same bamboo as an elite arbalest, twin dart launchers, gold trim, battle-worn leaf cape",
   ], 1020),
@@ -475,35 +477,35 @@ export const ART: ArtEntry[] = [
     "the same cat flower as a regal spirit cat, many glowing petal tails fanned out, tiny golden crown, sparkling whiskers",
   ], 1030),
   ...plantArt(PLANTS.lantern, [
-    "small stone garden lantern with a mossy cap and a gentle warm glowing face",
+    "small round stone garden lantern with a fluffy mossy cap and a gentle warm smiling face",
     "the same stone lantern grown stout, ivy strap armor, brighter amber glow, sturdy stance",
-    "the same stone lantern as a little fortress, carved guardian face, blazing gold light, thorned ivy plates",
+    "the same stone lantern as a cozy little fortress with a kind carved guardian face, warm gold light, soft ivy plates",
   ], 1040),
   ...plantArt(PLANTS.sakura, [
-    "small cherry blossom sapling with a shy blushing face, a few pink petals drifting",
+    "small round cherry blossom sapling with a shy blushing face and big soft eyes, a few pink petals drifting",
     "the same cherry tree grown into a blossom guardian, swirl of pink petals, calm smile",
     "the same tree as a great sakura spirit in storm bloom, petal vortex, ancient serene face",
   ], 1050),
   // --- foes (32x32, transparent, walk west) --------------------------------
   ...foeArt(FOES.wisp, [
-    "floating paper lantern ghost with a tiny flame heart and a mischievous grin, ragged paper skirt",
-    "the same lantern ghost with twin flames and a wilder grin, scorched paper edges",
-    "the same lantern ghost as a burning wraith, blue-white pyre flames, fierce bright eyes",
+    "floating paper lantern ghost with a tiny warm flame heart, chubby cheeks and a happy grin, soft ragged paper skirt",
+    "the same lantern ghost with twin cozy flames and a bigger happy grin, gently scorched paper edges",
+    "the same lantern ghost with marshmallow-soft blue-white pyre flames, wide sparkly eyes",
   ], 2010),
   ...foeArt(FOES.kasa, [
-    "one-eyed umbrella yokai swordsman, tongue out, straw sandals, small wooden blade",
-    "the same umbrella yokai in iron-ribbed armor with a war fan, one glowing eye",
-    "the same umbrella yokai as a lacquer-armored warlord, crimson eye, twin blades",
+    "chubby one-eyed umbrella yokai with a happy waggling tongue, tiny straw sandals, little toy wooden blade",
+    "the same umbrella yokai grown round in cute iron-ribbed armor with a little war fan, one big glowing eye",
+    "the same umbrella yokai as a tiny round warlord in shiny lacquered armor, big sparkly crimson eye, two toy blades",
   ], 2020),
   ...foeArt(FOES.usagi, [
-    "small white moon rabbit spirit hopping with a tiny mochi mallet, round pink eyes",
-    "the same moon rabbit as a drummer-warrior, red headband, bigger mochi hammer, determined",
-    "the same moon rabbit as a royal vanguard, crescent banner on the back, great mallet, glowing fur",
+    "extra fluffy little white moon rabbit spirit hopping with a tiny mochi mallet, big round pink eyes, chubby cheeks",
+    "the same fluffy moon rabbit as a little drummer-warrior, red headband, bigger mochi hammer, determined puffy face",
+    "the same fluffy moon rabbit as a royal vanguard, tiny crescent banner on the back, great mallet, softly glowing fur",
   ], 2030),
   ...foeArt(FOES.uta, [
-    "little night sparrow songstress spirit holding a tiny lantern staff, beak open in song",
-    "the same night sparrow with a feathered cloak, brighter music notes swirling",
-    "the same night sparrow as a radiant diva, plume crown, spiral of glowing song light",
+    "round little night sparrow songstress spirit holding a tiny lantern staff, beak open in a happy song, fluffy feathers",
+    "the same fluffy night sparrow with a cozy feathered cloak, bright music notes swirling around",
+    "the same fluffy night sparrow as a radiant little diva, soft plume crown, spiral of glowing song light, sweet face",
   ], 2040),
   // --- projectiles + mote (32x32, transparent, drawn at 16px) ---------------
   { name: "shot-bolt.png", prompt: `slim jade bamboo dart flying sideways, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3001, transparent: true },
@@ -515,7 +517,7 @@ export const ART: ArtEntry[] = [
     name: "bg-title.png",
     prompt:
       "stone shrine in a night garden under an enormous full moon, sakura tree and bamboo grove, " +
-      "fireflies, deep indigo sky, dreamy detailed pixel art seascape of grass",
+      "fireflies, deep indigo sky, cozy dreamy soft pastel night, gentle glow, detailed pixel art",
     w: SCENE_W, h: SCENE_H, seed: 4001, shading: "detailed shading", detail: "highly detailed",
   },
   {
@@ -530,7 +532,7 @@ export const ART: ArtEntry[] = [
     name: "bg-dawn.png",
     prompt:
       "the same stone shrine garden at the first golden dawn, sun rising over the bamboo grove, " +
-      "warm amber light washing the grass, hopeful detailed pixel art",
+      "soft warm pastel light washing the grass, gentle and hopeful, detailed pixel art",
     w: SCENE_W, h: SCENE_H, seed: 4003, shading: "detailed shading", detail: "highly detailed",
     initFrom: "bg-title.png", initStrength: 300,
   },
@@ -538,7 +540,7 @@ export const ART: ArtEntry[] = [
     name: "bg-eternal.png",
     prompt:
       "the same stone shrine garden under a huge ominous crimson moon, black bamboo silhouettes, " +
-      "red mist over the grass, grim detailed pixel art",
+      "soft rose mist over the grass, storybook-spooky plum and rose palette, detailed pixel art",
     w: SCENE_W, h: SCENE_H, seed: 4004, shading: "detailed shading", detail: "highly detailed",
     initFrom: "bg-title.png", initStrength: 300,
   },

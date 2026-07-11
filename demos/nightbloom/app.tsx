@@ -47,7 +47,10 @@ import { createNightbloom, FX_LIFE, type FloatFx, type Nightbloom, type PlantSta
 function TitleScreen() {
   return (
     <View debugName="Title" class="absolute inset-0">
-      <Image class="absolute inset-0 w-full h-full" src="bg-title.png" />
+      {/* 256x128 scene drawn at 480x240 — a UNIFORM 1.875x (stretching to the
+          full 272 screen height would squash the moon); the bottom 32px is a
+          letterbox band the legend sits in, tidelight-style. */}
+      <Image class="absolute top-0 left-0 w-full h-[240]" src="bg-title.png" />
       <View class="absolute left-0 right-0 bottom-0 h-24 bg-slate-950 opacity-70" />
       <View class="absolute left-0 right-0 top-8 flex-col items-center gap-1">
         <Text class="text-4xl text-pink-200 font-bold tracking-wide">NIGHTBLOOM</Text>
@@ -71,7 +74,7 @@ function EndScreen(props: { game: Nightbloom; win: boolean }) {
   const survivors = () => g.roster.filter((r) => r.hp() > 0).length;
   return (
     <View debugName="End" class="absolute inset-0">
-      <Image class="absolute inset-0 w-full h-full" src={props.win ? "bg-dawn.png" : "bg-eternal.png"} />
+      <Image class="absolute top-0 left-0 w-full h-[240]" src={props.win ? "bg-dawn.png" : "bg-eternal.png"} />
       <View class="absolute inset-0 bg-slate-950 opacity-55" />
       <View class="absolute left-0 right-0 top-10 flex-col items-center gap-2">
         <Text class="text-xs text-slate-300 tracking-wide">{props.win ? "THE DIVA FALLS SILENT" : "THE GARDEN FALLS DARK"}</Text>

@@ -14,7 +14,8 @@ left, the roster on the right).
 ![NIGHTBLOOM: the NIGHT SPARROW DIVA's first card](../../assets/screenshots/nightbloom.png)
 
 *The witching hour. The NIGHT SPARROW DIVA opens NIGHT SONG — WANDERING
-CHORUS; the catnip kit answers from below, NINE LIVES on the wing.*
+CHORUS; the bamboo arbalest answers from below as the roster rotates
+through the pilot seat.*
 
 ## Play it
 
