@@ -201,15 +201,45 @@ function BossNode(props: { game: Nightbloom }) {
   const g = props.game;
   return (
     <Show when={g.boss()} keyed>
-      {(b) => (
-        <View
-          debugName="Boss"
-          class="absolute items-center justify-center"
-          style={{ insetL: b.x() - FIELD.x0 - 26, insetT: b.y() - FIELD.y0 - 26, width: 52, height: 52 }}
-        >
-          <Image class="w-[52] h-[52]" src={b.def.sprite} />
-        </View>
-      )}
+      {(b) => {
+        const phase = () => b.def.phases[b.phase()];
+        const size = () => phase().size;
+        /** 0..1 metamorphosis progress (24 ticks), -1 when settled. */
+        const morph = () => {
+          const at = g.bossFlash();
+          if (at < 0) return -1;
+          const age = g.fxTick() - at;
+          return age >= 0 && age < 24 ? age / 24 : -1;
+        };
+        return (
+          <View
+            debugName="Boss"
+            class="absolute items-center justify-center"
+            style={{
+              insetL: b.x() - FIELD.x0 - size() / 2,
+              insetT: b.y() - FIELD.y0 - size() / 2,
+              width: size(),
+              height: size(),
+              scale: morph() >= 0 ? 1.45 - morph() * 0.45 : 1,
+            }}
+          >
+            <Image class="w-full h-full" src={phase().sprite} />
+            <Show when={morph() >= 0}>
+              <View
+                class="absolute border-2 border-pink-300"
+                style={{
+                  width: 20 + morph() * 90,
+                  height: 20 + morph() * 90,
+                  radius: 10 + morph() * 45,
+                  insetL: size() / 2 - 10 - morph() * 45,
+                  insetT: size() / 2 - 10 - morph() * 45,
+                  opacity: 1 - morph(),
+                }}
+              />
+            </Show>
+          </View>
+        );
+      }}
     </Show>
   );
 }

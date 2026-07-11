@@ -74,6 +74,23 @@ const SFX: Record<SfxKind, SfxDef> = {
   evolve: { voices: ARP([523.25, 659.25, 783.99], 0.07, 0.12, 0.12, "sine") },
   unlock: { voices: ARP([659.25, 880, 1174.66, 1567.98], 0.09, 0.2, 0.13, "triangle") },
   heal: { voices: [{ f0: 880, f1: 1320, dur: 0.07, type: "sine", gain: 0.05 }], throttle: 260 },
+  // the diva's cry — three quick chirps, up, down-up, and away
+  "boss-bird": {
+    voices: [
+      { f0: 2000, f1: 2750, dur: 0.07, type: "sine", gain: 0.16 },
+      { f0: 2500, f1: 1650, dur: 0.09, type: "sine", gain: 0.14, delay: 0.1 },
+      { f0: 2300, f1: 3100, dur: 0.1, type: "sine", gain: 0.15, delay: 0.21 },
+    ],
+  },
+  // the umbrella's cry — a beating metal clang over a low whoomp
+  "boss-umbrella": {
+    voices: [
+      { f0: 196, f1: 180, dur: 0.4, type: "square", gain: 0.14 },
+      { f0: 203, f1: 186, dur: 0.4, type: "square", gain: 0.12 },
+      { f0: 90, f1: 45, dur: 0.35, type: "sawtooth", gain: 0.2, delay: 0.02 },
+    ],
+    noise: [{ dur: 0.12, gain: 0.14, cutoff: 3200 }],
+  },
   bossbreak: {
     voices: [{ f0: 160, f1: 40, dur: 0.5, type: "sawtooth", gain: 0.28 }, ...ARP([659.25, 783.99, 1046.5], 0.09, 0.16, 0.1, "sine")],
     noise: [{ dur: 0.3, gain: 0.22, cutoff: 700 }],

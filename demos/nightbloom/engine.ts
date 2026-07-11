@@ -253,6 +253,8 @@ export interface Nightbloom {
   boss: Accessor<BossInst | null>;
   bossCard: Accessor<string>;
   bossCardSeconds: Accessor<number>;
+  /** Battle tick of the last boss entry/metamorphosis, for the flash ring. */
+  bossFlash: Accessor<number>;
   enemyShots: Accessor<EnemyShot[]>;
   playerShots: Accessor<PlayerShot[]>;
   motes: Accessor<MoteInst[]>;
@@ -308,6 +310,7 @@ export function createNightbloom(): Nightbloom {
   const fxs = cell<FloatFx[]>([]);
   const toasts = cell<Toast[]>([]);
   const fxTick = cell(0);
+  const bossFlash = cell(-1);
 
   const roster: PlantState[] = PLANT_ORDER.map((kind, i) => ({
     kind,
@@ -413,6 +416,7 @@ export function createNightbloom(): Nightbloom {
     fxs.set([]);
     toasts.set([]);
     fxTick.set(0);
+    bossFlash.set(-1);
     wiltTicks = 0;
     rescues = 0;
     wilting.set(false);
@@ -497,6 +501,8 @@ export function createNightbloom(): Nightbloom {
     });
     bossCard.set(def.phases[0].card);
     bossCardSeconds.set(def.phases[0].timeout);
+    bossFlash.set(tick);
+    sfx(def.voice);
     toast(mid ? `${def.name} BARS THE WAY` : `${def.name} TAKES THE STAGE`);
   }
 
@@ -586,6 +592,8 @@ export function createNightbloom(): Nightbloom {
       b.spiral = 0;
       bossCard.set(b.def.phases[idx + 1].card);
       bossCardSeconds.set(b.def.phases[idx + 1].timeout);
+      bossFlash.set(tick); // the metamorphosis
+      sfx(b.def.voice);
     } else {
       boss.set(null);
       bossCard.set("");
@@ -889,7 +897,7 @@ export function createNightbloom(): Nightbloom {
       advanceBoss(b, false);
       return;
     }
-    const speed = b.mid ? 66 : 58 + idx * 8;
+    const speed = b.mid ? 66 : 62 + idx * 8;
     const dmg = BULLET_DMG[2];
     b.fireCd--;
     b.fireCd2--;
@@ -914,10 +922,10 @@ export function createNightbloom(): Nightbloom {
     if (idx === 0) {
       // NIGHT SONG: rotating rings + aimed triples
       if (b.fireCd <= 0) {
-        b.fireCd = Math.round(1.2 * TPS);
+        b.fireCd = Math.round(1.1 * TPS);
         b.spiral += 3;
-        for (let i = 0; i < 12; i++) {
-          const a = Math.round((i * 64) / 12) + b.spiral;
+        for (let i = 0; i < 14; i++) {
+          const a = Math.round((i * 64) / 14) + b.spiral;
           enemyFire(b.x(), b.y(), cosA(a) * speed, sinA(a) * speed, "pink", dmg);
         }
       }
@@ -936,13 +944,13 @@ export function createNightbloom(): Nightbloom {
     } else if (idx === 1) {
       // MOONFALL CANTATA: a spiral stream + aimed mochi pairs
       if (b.fireCd <= 0) {
-        b.fireCd = 7;
+        b.fireCd = 6;
         b.spiral += 5;
         enemyFire(b.x(), b.y(), cosA(b.spiral) * speed, sinA(b.spiral) * speed, "pink", dmg);
         enemyFire(b.x(), b.y(), cosA(b.spiral + 32) * speed, sinA(b.spiral + 32) * speed, "pink", dmg);
       }
       if (b.fireCd2 <= 0) {
-        b.fireCd2 = Math.round(1.8 * TPS);
+        b.fireCd2 = Math.round(1.6 * TPS);
         const v = aimedAt(b.x(), b.y(), speed + 30);
         enemyFire(b.x() - 10, b.y() + 8, v.vx, v.vy, "mochi", dmg);
         enemyFire(b.x() + 10, b.y() + 8, v.vx, v.vy, "mochi", dmg);
@@ -950,15 +958,15 @@ export function createNightbloom(): Nightbloom {
     } else {
       // THE ETERNAL NIGHT: twin counter-spirals + slow rings
       if (b.fireCd <= 0) {
-        b.fireCd = 6;
+        b.fireCd = 5;
         b.spiral += 3;
         enemyFire(b.x(), b.y(), cosA(b.spiral) * 52, sinA(b.spiral) * 52, "pink", dmg);
         enemyFire(b.x(), b.y(), cosA(-b.spiral) * 52, sinA(-b.spiral) * 52, "cyan", dmg);
       }
       if (b.fireCd2 <= 0) {
-        b.fireCd2 = Math.round(4 * TPS);
-        for (let i = 0; i < 16; i++) {
-          const a = Math.round((i * 64) / 16) + ((tick >> 5) % 64);
+        b.fireCd2 = Math.round(3.5 * TPS);
+        for (let i = 0; i < 18; i++) {
+          const a = Math.round((i * 64) / 18) + ((tick >> 5) % 64);
           enemyFire(b.x(), b.y(), cosA(a) * 42, sinA(a) * 42, "amber", dmg);
         }
       }
@@ -997,9 +1005,10 @@ export function createNightbloom(): Nightbloom {
           if (!struck) {
             const b = boss();
             if (b) {
+              const br = b.def.phases[b.phase()].size * 0.4;
               const bdx = b.x() - sh.x();
               const bdy = b.y() - sh.y();
-              if (bdx * bdx + bdy * bdy <= 22 * 22) {
+              if (bdx * bdx + bdy * bdy <= br * br) {
                 hitBoss(b, sh.dmg, sh.owner);
                 struck = true;
               }
@@ -1082,10 +1091,11 @@ export function createNightbloom(): Nightbloom {
       if (!spent) {
         const b = boss();
         if (b) {
+          const br = b.def.phases[b.phase()].size * 0.4;
           const dx = b.x() - sh.x();
           const dy = b.y() - sh.y();
-          if (dx * dx + dy * dy <= 22 * 22) {
-            hitBoss(b, sh.pierce ? sh.dmg : sh.dmg, sh.owner);
+          if (dx * dx + dy * dy <= br * br) {
+            hitBoss(b, sh.dmg, sh.owner);
             spent = true;
           }
         }
@@ -1262,6 +1272,7 @@ export function createNightbloom(): Nightbloom {
     boss,
     bossCard,
     bossCardSeconds,
+    bossFlash,
     enemyShots,
     playerShots,
     motes,

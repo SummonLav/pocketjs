@@ -353,28 +353,32 @@ export interface BossPhaseDef {
   hp: number;
   /** Seconds before the card times out and the phase advances anyway. */
   timeout: number;
+  /** This phase's transformation art (64x64) and its draw size in px —
+   *  every card change is a visible metamorphosis. */
+  sprite: string;
+  size: number;
 }
 
 export interface BossDef {
   name: string;
-  /** Which foe's stage-III art the boss wears, drawn large. */
-  sprite: string;
+  /** The boss's own cry — played on entry and on every transformation. */
+  voice: SfxKind;
   phases: BossPhaseDef[];
 }
 
 export const MIDBOSS: BossDef = {
   name: "IRON KASA, GROWN WRONG",
-  sprite: "f-kasa-3.png",
-  phases: [{ card: "UMBRELLA SIGN -- RIBS OF THE STORM", hp: 620, timeout: 30 }],
+  voice: "boss-umbrella",
+  phases: [{ card: "UMBRELLA SIGN -- RIBS OF THE STORM", hp: 620, timeout: 30, sprite: "boss-kasa.png", size: 56 }],
 };
 
 export const BOSS: BossDef = {
   name: "THE NIGHT SPARROW DIVA",
-  sprite: "f-uta-3.png",
+  voice: "boss-bird",
   phases: [
-    { card: "NIGHT SONG -- WANDERING CHORUS", hp: 680, timeout: 36 },
-    { card: "MOCHI SIGN -- MOONFALL CANTATA", hp: 780, timeout: 36 },
-    { card: "FINALE -- THE ETERNAL NIGHT", hp: 900, timeout: 44 },
+    { card: "NIGHT SONG -- WANDERING CHORUS", hp: 720, timeout: 36, sprite: "boss-uta-1.png", size: 52 },
+    { card: "MOCHI SIGN -- MOONFALL CANTATA", hp: 830, timeout: 36, sprite: "boss-uta-2.png", size: 58 },
+    { card: "FINALE -- THE ETERNAL NIGHT", hp: 950, timeout: 44, sprite: "boss-uta-3.png", size: 66 },
   ],
 };
 
@@ -396,6 +400,8 @@ export type SfxKind =
   | "shoot"
   | "unlock"
   | "heal"
+  | "boss-bird"
+  | "boss-umbrella"
   | "hit"
   | "kill"
   | "hurt"
@@ -531,6 +537,39 @@ export const ART: ArtEntry[] = [
   { name: "shot-mochi.png", prompt: `small round white mochi rice cake, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3003, transparent: true },
   { name: "mote.png", prompt: `small silver-blue moonlight droplet, sparkling, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3004, transparent: true },
   { name: "shot-banana.png", prompt: `curved ripe yellow banana, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3005, transparent: true },
+  // --- boss transformation portraits (64x64, chained from the mob art) ------
+  {
+    name: "boss-kasa.png",
+    prompt:
+      "huge one-eyed umbrella yokai warlord grown monstrous, towering shiny lacquered armor, " +
+      "storm ribs spread wide like a broken umbrella crown, one enormous glowing crimson eye, " +
+      "two toy blades, adorable chubby menace, deep purple lacquer and crimson trim, " + FOE_STYLE,
+    w: 64, h: 64, seed: 2050, transparent: true, direction: "south",
+  },
+  {
+    name: "boss-uta-1.png",
+    prompt:
+      "the night sparrow diva on her stage: a fluffy round songstress bird in a sparkling dress, " +
+      "soft plume crown, lantern staff raised, music notes swirling, warm brown feathers " +
+      "with rose-pink chest, " + FOE_STYLE,
+    w: 64, h: 64, seed: 2051, transparent: true, direction: "south",
+  },
+  {
+    name: "boss-uta-2.png",
+    prompt:
+      "the same diva transformed mid-song: wings spread wide, radiant feather cloak flaring, " +
+      "twin glowing song spirals around her, brighter plume crown, " + FOE_STYLE,
+    w: 64, h: 64, seed: 2052, transparent: true, direction: "south",
+    initFrom: "boss-uta-1.png", initStrength: 300,
+  },
+  {
+    name: "boss-uta-3.png",
+    prompt:
+      "the same diva's final form: an ascended phoenix-like night sparrow, blazing moonlit plumage, " +
+      "a glowing crescent halo crown, the eternal night swirling around her wings, " + FOE_STYLE,
+    w: 64, h: 64, seed: 2053, transparent: true, direction: "south",
+    initFrom: "boss-uta-2.png", initStrength: 300,
+  },
   // --- scenes (256x128 opaque, drawn at 480x240) ----------------------------
   {
     name: "bg-title.png",
@@ -612,10 +651,10 @@ export function validateContent(): string[] {
   }
   if (!(MIDBOSS_AT < BOSS_AT)) problems.push("midboss must arrive before the boss");
   for (const b of [MIDBOSS, BOSS]) {
-    if (!artNames.has(b.sprite)) problems.push(`boss "${b.name}" sprite "${b.sprite}" missing from ART`);
     if (b.phases.length === 0) problems.push(`boss "${b.name}" has no spell cards`);
     for (const ph of b.phases) {
-      if (ph.hp <= 0 || ph.timeout <= 0) problems.push(`boss card "${ph.card}" has a non-positive stat`);
+      if (!artNames.has(ph.sprite)) problems.push(`boss card "${ph.card}" sprite "${ph.sprite}" missing from ART`);
+      if (ph.hp <= 0 || ph.timeout <= 0 || ph.size <= 0) problems.push(`boss card "${ph.card}" has a non-positive stat`);
     }
   }
 

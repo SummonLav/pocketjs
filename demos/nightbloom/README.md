@@ -36,7 +36,11 @@ bun scripts/dev.ts nightbloom-main    # then open http://127.0.0.1:8130/?demo=ni
 | START | Space | start / pause |
 
 Survive the night: nine waves across DUSK and MIDNIGHT, a midboss, and THE
-NIGHT SPARROW DIVA's three spell cards at the witching hour.
+NIGHT SPARROW DIVA's three spell cards at the witching hour — and every
+card change is a METAMORPHOSIS: each boss phase wears its own 64x64
+transformation portrait (stage dress, flared wings, a phoenix final form
+that grows 52 -> 58 -> 66 px), announced by a flash ring and the boss's
+own cry — the diva chirps, the umbrella clangs.
 
 **The roster wakes as you play.** Only the CATNIP KIT answers at dusk — the
 other two cards show `?`. Ascend once (stage II) and the sakura SAPLING
@@ -93,8 +97,8 @@ proves it on a bullet-hell:
   (`backend.ts`).
 
 **Sound** is an output, never an input: the engine emits `SfxKind` events
-(the hit thock, the kill pop, graze pings, spell declarations, the dawn
-arpeggio) into a host sound sink. `sfx.ts` installs one where WebAudio
+(the hit thock, the kill pop, graze pings, spell declarations, per-boss
+transformation cries, the dawn arpeggio) into a host sound sink. `sfx.ts` installs one where WebAudio
 exists — every voice is synthesized from oscillators and a deterministic
 noise buffer, no assets — and resumes on the first key press per the
 browser's autoplay policy. The headless sim and the PSP never install a
