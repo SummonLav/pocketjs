@@ -371,6 +371,29 @@ function Field(props: { game: Nightbloom }) {
 // Side panels
 // ---------------------------------------------------------------------------
 
+/** Long lines in the narrow panels scroll like a ticker instead of
+ *  clipping: two copies loop leftward, driven by the battle tick (so the
+ *  marquee subsamples exactly like everything else). Short lines hold
+ *  still. Width is estimated from the glyph count. */
+function Marquee(props: { game: Nightbloom; text: string; cls: string; width: number }) {
+  const textW = () => props.text.length * 7;
+  const scroll = () => {
+    if (textW() <= props.width) return 0;
+    const span = textW() + 24;
+    return -((props.game.fxTick() * 0.6) % span);
+  };
+  return (
+    <View class="overflow-hidden" style={{ width: props.width, height: 16 }}>
+      <View class="flex-row gap-6" style={{ translateX: scroll() }}>
+        <Text class={props.cls}>{props.text}</Text>
+        <Show when={textW() > props.width}>
+          <Text class={props.cls}>{props.text}</Text>
+        </Show>
+      </View>
+    </View>
+  );
+}
+
 function LeftPanel(props: { game: Nightbloom }) {
   const g = props.game;
   const phaseName = () => {
@@ -394,14 +417,14 @@ function LeftPanel(props: { game: Nightbloom }) {
       <Show when={g.augury() !== ""}>
         <View class="flex-col gap-1 p-2 rounded-md border border-violet-900 bg-[#020617aa]">
           <Text class="text-xs text-violet-300 tracking-wide">AUGURY</Text>
-          <Text class="text-xs text-slate-400 leading-4">{g.augury()}</Text>
+          <Marquee game={g} text={g.augury()} cls="text-xs text-slate-400" width={102} />
         </View>
       </Show>
       <Show when={g.boss()} keyed>
         {(b) => (
           <View class="flex-col gap-1 p-2 rounded-md border border-red-900 bg-[#020617aa]">
-            <Text class="text-xs text-red-300 tracking-wide">{b.def.name}</Text>
-            <Text class="text-xs text-slate-300 leading-4">{b.def.phases[b.phase()].card}</Text>
+            <Marquee game={g} text={b.def.name} cls="text-xs text-red-300 tracking-wide" width={102} />
+            <Marquee game={g} text={b.def.phases[b.phase()].card} cls="text-xs text-slate-300" width={102} />
             <Text class="text-xs text-slate-500">{"TIMEOUT " + g.bossCardSeconds() + "s"}</Text>
           </View>
         )}
