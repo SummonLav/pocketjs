@@ -39,7 +39,7 @@ import {
   SHOTS,
   WAVES,
 } from "./data.ts";
-import { createNightbloom, FX_LIFE, type FloatFx, type Nightbloom, type PlantState } from "./engine.ts";
+import { createNightbloom, FX_LIFE, STAMP_AT, STAMP_IMPACT, type FloatFx, type Nightbloom, type PlantState } from "./engine.ts";
 
 // ---------------------------------------------------------------------------
 // Title / endings
@@ -70,58 +70,91 @@ function TitleScreen() {
   );
 }
 
+/** Chunky gold "art lettering": the same line three times, offset like a
+ *  stamped foil title. */
+function ArtTitle(props: { text: string; y: number }) {
+  return (
+    <View class="absolute left-0 right-0" style={{ insetT: props.y, height: 30 }}>
+      <Text class="absolute left-0 right-0 text-center text-2xl font-bold tracking-wide text-amber-900" style={{ translateX: 2, translateY: 2 }}>
+        {props.text}
+      </Text>
+      <Text class="absolute left-0 right-0 text-center text-2xl font-bold tracking-wide text-pink-400" style={{ translateX: -1, translateY: -1 }}>
+        {props.text}
+      </Text>
+      <Text class="absolute left-0 right-0 text-center text-2xl font-bold tracking-wide text-amber-100">
+        {props.text}
+      </Text>
+    </View>
+  );
+}
+
 function EndScreen(props: { game: Nightbloom; win: boolean }) {
   const g = props.game;
   // Only forms that ever WOKE count — a locked card never fought.
   const awakened = () => g.roster.filter((r) => r.unlocked());
   const survivors = () => awakened().filter((r) => r.hp() > 0).length;
-  /** The dawn decorations: medals that congratulate you for the wrong
-   *  things. Up to three, in roast order; a spotless run earns suspicion. */
-  const badges = (): string[] => {
-    const out: string[] = [];
+  /** The dawn decoration: ONE medal that congratulates you for the wrong
+   *  thing, picked in roast order; a spotless run earns suspicion. */
+  const medal = (): { title: string; detail: string } => {
     const wilted = awakened().length - survivors();
-    if (g.escaped() > 0) out.push("MERCY MEDAL -- " + g.escaped() + " FOES STROLLED OFF UNHARMED");
-    if (g.hitsTaken() > 0) out.push("PINCUSHION -- STRUCK " + g.hitsTaken() + " TIMES AND PROUD");
-    if (wilted > 0) out.push("COMPOST AWARD -- " + wilted + " GARDENERS WILTED ON YOUR WATCH");
-    if (g.cardTimeouts() > 0) out.push("OUTSTAYED WELCOME -- " + g.cardTimeouts() + " CARDS DIED OF OLD AGE");
-    if (g.motesMissed() > 0) out.push("LITTERBUG -- " + g.motesMissed() + " MOTES LEFT IN THE GRASS");
-    if (g.graze() === 0) out.push("PERSONAL SPACE -- NOT ONE GRAZE ALL NIGHT");
-    if (out.length === 0) out.push("SUSPICIOUSLY PERFECT -- THE NIGHT DEMANDS A REMATCH");
-    return out.slice(0, 3);
+    if (g.escaped() > 0) return { title: "MERCY MEDAL", detail: g.escaped() + " FOES STROLLED OFF UNHARMED" };
+    if (g.hitsTaken() > 0) return { title: "PINCUSHION", detail: "STRUCK " + g.hitsTaken() + " TIMES AND PROUD" };
+    if (wilted > 0) return { title: "COMPOST AWARD", detail: wilted + " GARDENERS WILTED ON YOUR WATCH" };
+    if (g.cardTimeouts() > 0) return { title: "OUTSTAYED WELCOME", detail: g.cardTimeouts() + " CARDS DIED OF OLD AGE" };
+    if (g.motesMissed() > 0) return { title: "LITTERBUG", detail: g.motesMissed() + " MOTES LEFT IN THE GRASS" };
+    if (g.graze() === 0) return { title: "PERSONAL SPACE", detail: "NOT ONE GRAZE ALL NIGHT" };
+    return { title: "SUSPICIOUSLY PERFECT", detail: "THE NIGHT DEMANDS A REMATCH" };
+  };
+  /** The arcade count-up: the score rolls in over the first 1.2 s. */
+  const shownScore = () => Math.floor(g.score() * Math.min(1, g.endTick() / 72));
+  /** Stamp physics: appear huge and tilted, slam to rest, shake the room. */
+  const slam = () => Math.min(1, Math.max(0, (g.endTick() - STAMP_AT) / (STAMP_IMPACT - STAMP_AT)));
+  const stamped = () => props.win && g.endTick() >= STAMP_AT;
+  const SHAKE = [3, -2, 2, -2, 1, -1, 0];
+  const shake = () => {
+    const n = g.endTick() - STAMP_IMPACT;
+    return n >= 0 && n < 14 ? SHAKE[Math.min(6, n >> 1)] : 0;
   };
   return (
-    <View debugName="End" class="absolute inset-0">
+    <View debugName="End" class="absolute inset-0" style={{ translateX: shake() }}>
       <Image class="absolute top-0 left-0 w-full h-[240]" src={props.win ? "bg-dawn.png" : "bg-eternal.png"} />
       <View class="absolute inset-0 bg-slate-950 opacity-55" />
-      <View class="absolute left-0 right-0 top-2 flex-col items-center gap-1">
+      <View class="absolute left-0 right-0 top-3 flex-col items-center gap-1">
         <Text class="text-xs text-slate-300 tracking-wide">{props.win ? "THE DIVA FALLS SILENT" : "THE GARDEN FALLS DARK"}</Text>
-        <Text class={props.win ? "text-4xl text-amber-200 font-bold tracking-wide" : "text-4xl text-red-300 font-bold tracking-wide"}>
+        <Text class={props.win ? "text-2xl text-amber-200 font-bold tracking-wide" : "text-2xl text-red-300 font-bold tracking-wide"}>
           {props.win ? "DAWN BREAKS" : "ETERNAL NIGHT"}
         </Text>
-        <View class="w-14 h-[2] bg-pink-300" />
       </View>
-      <View class="absolute left-0 right-0 flex-col items-center gap-1" style={{ insetT: 68 }}>
-        <View class="flex-col gap-1 p-1 rounded-md border border-slate-700 bg-[#020617cc] items-center">
-          <Text class="text-xs text-slate-300">{"SCORE: " + g.score()}</Text>
-          <Text class="text-xs text-slate-300">{"GRAZE: " + g.graze()}</Text>
-          <Text class="text-xs text-slate-300">{"FOES FELLED: " + g.kills()}</Text>
-          <Text class="text-xs text-slate-300">{"GREATEST BLOOM: STAGE " + g.bestStage()}</Text>
-          <Text class="text-xs text-slate-300">{"SURVIVING FORMS: " + survivors() + " OF " + awakened().length + " AWAKENED"}</Text>
-        </View>
-        <Show when={props.win}>
-          <View class="flex-col gap-1 p-1 rounded-md border border-amber-700 bg-[#020617cc] items-center">
-            <Text class="text-xs text-amber-300 tracking-wide">HONORS, OF A SORT</Text>
-            <For each={badges()}>
-              {(b) => (
-                <View class="flex-row items-center gap-1">
-                  <View class="w-2 h-2 rounded-full bg-amber-300 border border-amber-100" />
-                  <Text class="text-xs text-slate-300">{b}</Text>
-                </View>
-              )}
-            </For>
+      {/* act one: the score takes the stage, rolling up arcade-style */}
+      <View class="absolute left-0 right-0 flex-col items-center gap-1" style={{ insetT: 74 }}>
+        <Text class="text-xs text-slate-400 tracking-wide">SCORE</Text>
+        <Text class="text-4xl text-amber-200 font-bold tracking-wide">{String(props.win ? shownScore() : g.score())}</Text>
+      </View>
+      <View class="absolute left-0 right-0 flex-col items-center gap-1" style={{ insetT: 152, opacity: stamped() ? 0.3 : 1 }}>
+        <Text class="text-xs text-slate-400">{"FOES FELLED: " + g.kills() + "   GRAZE: " + g.graze()}</Text>
+        <Text class="text-xs text-slate-400">{"GREATEST BLOOM: STAGE " + g.bestStage() + "   SURVIVING FORMS: " + survivors() + " OF " + awakened().length + " AWAKENED"}</Text>
+      </View>
+      {/* act two: the medal is slapped onto the glass */}
+      <Show when={stamped()}>
+        <View
+          class="absolute left-0 right-0 items-center"
+          style={{
+            insetT: 96,
+            height: 150,
+            scale: 3.0 - 2.0 * slam(),
+            rotate: -26 + 14 * slam(),
+            opacity: 0.3 + 0.7 * slam(),
+          }}
+        >
+          <Image class="absolute w-[120] h-[120]" src="medal.png" style={{ insetL: 180, insetT: 8 }} />
+          <ArtTitle text={medal().title} y={52} />
+          <View class="absolute left-0 right-0 flex-col items-center" style={{ insetT: 86 }}>
+            <View class="px-2 py-1 rounded-sm bg-[#0f172acc] border border-amber-700">
+              <Text class="text-xs text-amber-100 tracking-wide">{medal().detail}</Text>
+            </View>
           </View>
-        </Show>
-      </View>
+        </View>
+      </Show>
       <View class="absolute left-0 right-0 bottom-1 flex-col items-center">
         <Text class="text-sm text-amber-300 tracking-wide">START  RETURN TO TITLE</Text>
       </View>

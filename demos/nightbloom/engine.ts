@@ -261,6 +261,8 @@ export interface Nightbloom {
   bossCardSeconds: Accessor<number>;
   /** Battle tick of the last boss entry/metamorphosis, for the flash ring. */
   bossFlash: Accessor<number>;
+  /** Ticks since the outcome settled — the end screens' own clock. */
+  endTick: Accessor<number>;
   enemyShots: Accessor<EnemyShot[]>;
   playerShots: Accessor<PlayerShot[]>;
   motes: Accessor<MoteInst[]>;
@@ -288,6 +290,10 @@ const MAX_MOTES = 24;
 
 const SWITCH_TICKS = Math.round(SWITCH_COOLDOWN * TPS);
 const HURT_TICKS = Math.round(HURT_INVULN * TPS);
+/** Dawn sequence beats (in end-screen ticks): the score gets the stage
+ *  first, then the medal slams on and lands. */
+export const STAMP_AT = 120;
+export const STAMP_IMPACT = 132;
 
 export function createNightbloom(): Nightbloom {
   const outcome = cell<Outcome>("title");
@@ -317,6 +323,7 @@ export function createNightbloom(): Nightbloom {
   const toasts = cell<Toast[]>([]);
   const fxTick = cell(0);
   const bossFlash = cell(-1);
+  const endTick = cell(0);
 
   const roster: PlantState[] = PLANT_ORDER.map((kind, i) => ({
     kind,
@@ -341,6 +348,7 @@ export function createNightbloom(): Nightbloom {
   let invulnTicks = 0;
   let midbossDone = false;
   let bossDone = false;
+  let wallTicks = 0;
   let wiltTicks = 0;
   let rescues = 0;
   const escaped = cell(0);
@@ -403,6 +411,7 @@ export function createNightbloom(): Nightbloom {
     invulnTicks = 0;
     midbossDone = false;
     bossDone = false;
+    wallTicks = 0;
     phase.set("dusk");
     augury.set("");
     second.set(0);
@@ -427,6 +436,7 @@ export function createNightbloom(): Nightbloom {
     toasts.set([]);
     fxTick.set(0);
     bossFlash.set(-1);
+    endTick.set(0);
     wiltTicks = 0;
     rescues = 0;
     escaped.set(0);
@@ -1220,6 +1230,13 @@ export function createNightbloom(): Nightbloom {
       start();
       started = true; // fall through: the first batch ticks this same frame
     } else if (o === "dawn" || o === "eternal") {
+      // The outcome screens keep their own clock as (wall ticks - the tick
+      // the outcome settled on). Both terms are rate-aligned, so the medal
+      // stamp lands at the same virtual moment at every simulationHz.
+      wallTicks += ticksPerFrame();
+      const prev = endTick();
+      endTick.set(Math.max(0, wallTicks - tick));
+      if (o === "dawn" && prev < STAMP_IMPACT && endTick() >= STAMP_IMPACT) sfx("stamp");
       if (pressed & BTN.START) toTitle();
       return;
     }
@@ -1229,9 +1246,16 @@ export function createNightbloom(): Nightbloom {
     if (codexPage() > 0) return;
 
     const k = ticksPerFrame();
+    wallTicks += k;
     for (let i = 0; i < k; i++) {
-      if (outcome() !== "battle") return;
+      if (outcome() !== "battle") break;
       stepTick(i === 0 ? pressed : 0, buttons);
+    }
+    // If the night ended inside this batch, the end clock starts NOW: the
+    // wall keeps moving through the frame the outcome settled in, so the
+    // stamp timeline is subsample-exact at every rate.
+    if (outcome() === "dawn" || outcome() === "eternal") {
+      endTick.set(Math.max(0, wallTicks - tick));
     }
   }
 
@@ -1299,6 +1323,7 @@ export function createNightbloom(): Nightbloom {
     bossCard,
     bossCardSeconds,
     bossFlash,
+    endTick,
     enemyShots,
     playerShots,
     motes,
