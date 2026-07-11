@@ -28,7 +28,10 @@
 //     spawn slots are as replayable as everything else;
 //   - float fx drift by battle-tick age; toasts expire through after() on
 //     the virtual clock, epoch-guarded; the phase omen arrives through the
-//     effect shell (backend.ts).
+//     effect shell (backend.ts);
+//   - sound is an OUTPUT: the engine pokes a host sound sink (sfx.ts) and
+//     reads nothing back — hosts without WebAudio never install one, and
+//     the simulation is byte-identical either way.
 
 import { createSignal, type Accessor } from "solid-js";
 import { after, ticksPerFrame } from "@pocketjs/framework/clock";
@@ -63,9 +66,18 @@ import {
   type FoeId,
   type PhaseId,
   type PlantId,
+  type SfxKind,
 } from "./data.ts";
 
 export type Outcome = "title" | "battle" | "dawn" | "eternal";
+
+/** Poke the host's sound sink, if any (sfx.ts installs one where WebAudio
+ *  exists). Pure OUTPUT: reads nothing back, so the sim is byte-identical
+ *  with or without audio. */
+function sfx(kind: SfxKind): void {
+  const sink = (globalThis as Record<string, unknown>).__nightbloomSfx as ((k: SfxKind) => void) | undefined;
+  if (sink) sink(kind);
+}
 
 // ---------------------------------------------------------------------------
 // Quantized trig — bit-identical on every JS engine
@@ -398,6 +410,7 @@ export function createNightbloom(): Nightbloom {
       if (p.stage() > bestStage()) bestStage.set(p.stage());
       toast(`${def.name} ASCENDS: ${def.stageNames[p.stage() - 1]}`);
       fx(px(), py() - 14, "UP!", "evolve");
+      sfx("evolve");
     }
   }
 
@@ -469,6 +482,7 @@ export function createNightbloom(): Nightbloom {
     const def = FOES[f.kind];
     const eff = pierce ? dmg : Math.max(1, dmg - def.armor[f.stage - 1]);
     f.hp.set(f.hp() - eff);
+    sfx("hit");
     const p = roster[owner];
     if (p) grantGlow(p, eff);
     if (f.hp() <= 0) {
@@ -476,12 +490,14 @@ export function createNightbloom(): Nightbloom {
       score.set(score() + 100);
       dropMotes(f.x(), f.y(), def.bounty[f.stage - 1]);
       foes.set(foes().filter((x) => x.id !== f.id));
+      sfx("kill");
     }
   }
 
   function hitBoss(b: BossInst, dmg: number, owner: number): void {
     if (boss() !== b) return;
     b.hp.set(b.hp() - dmg);
+    sfx("hit");
     const p = roster[owner];
     if (p) grantGlow(p, dmg);
     if (b.hp() <= 0) advanceBoss(b, true);
@@ -497,6 +513,7 @@ export function createNightbloom(): Nightbloom {
     }
     dropMotes(b.x(), b.y(), BOSS_PHASE_BOUNTY);
     enemyShots.set([]); // the break clears the sky
+    sfx("bossbreak");
     if (idx + 1 < b.def.phases.length) {
       b.phase.set(idx + 1);
       b.hp.set(b.def.phases[idx + 1].hp);
@@ -514,6 +531,7 @@ export function createNightbloom(): Nightbloom {
         bossDone = true;
         if (broken) kills.set(kills() + 1);
         outcome.set("dawn");
+        sfx("dawn");
       }
     }
   }
@@ -527,12 +545,15 @@ export function createNightbloom(): Nightbloom {
     if (PLANTS[p.kind].id === "lantern") grantGlow(p, eff); // endures law
     invulnTicks = HURT_TICKS;
     fx(px(), py() - 12, `-${eff}`, "hurt");
+    sfx("hurt");
     if (p.hp() <= 0) {
       p.hp.set(0);
       toast(`${def.name} WILTS`);
+      sfx("wilt");
       const next = roster.findIndex(alive);
       if (next < 0) {
         outcome.set("eternal");
+        sfx("eternal");
         return;
       }
       activeIdx.set(next);
@@ -555,6 +576,7 @@ export function createNightbloom(): Nightbloom {
     activeIdx.set(idx);
     switchCd = SWITCH_TICKS;
     toast(`NOW PILOTING: ${PLANTS[roster[idx].kind].name}`);
+    sfx("switch");
   }
 
   function fireVolley(): void {
@@ -605,6 +627,7 @@ export function createNightbloom(): Nightbloom {
     }
     playerShots.set([...shots, ...add]);
     fireCd = Math.round(def.period[s] * TPS);
+    sfx("shoot");
   }
 
   function castSpell(): void {
@@ -648,6 +671,7 @@ export function createNightbloom(): Nightbloom {
       for (const r of roster) if (alive(r)) grantGlow(r, 80);
     }
     toast(`SPELL CARD: ${def.spell.name}`);
+    sfx("spell");
     p.spellCdTicks = def.spell.cooldown * TPS;
   }
 
@@ -974,6 +998,7 @@ export function createNightbloom(): Nightbloom {
         graze.set(graze() + 1);
         score.set(score() + 10);
         grantGlow(active(), GRAZE_GLOW);
+        sfx("graze");
       }
     }
 
@@ -1008,6 +1033,7 @@ export function createNightbloom(): Nightbloom {
         const worth = p.kind === "primrose" ? MOTE_GLOW * 2 : MOTE_GLOW;
         grantGlow(p, worth);
         score.set(score() + 5);
+        sfx("mote");
       }
     }
   }

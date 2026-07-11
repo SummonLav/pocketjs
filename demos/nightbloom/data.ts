@@ -386,6 +386,27 @@ export const START_GLOW = 0;
 export const NIGHT_SEED = 0x9e3779b9;
 
 // ---------------------------------------------------------------------------
+// Sound events — the engine EMITS these; a host-side sink (sfx.ts) renders
+// them when the host has an audio device. Pure output: no sink, no sound,
+// same simulation either way.
+// ---------------------------------------------------------------------------
+
+export type SfxKind =
+  | "shoot"
+  | "hit"
+  | "kill"
+  | "hurt"
+  | "wilt"
+  | "graze"
+  | "mote"
+  | "switch"
+  | "spell"
+  | "evolve"
+  | "bossbreak"
+  | "dawn"
+  | "eternal";
+
+// ---------------------------------------------------------------------------
 // Projectiles + scenes
 // ---------------------------------------------------------------------------
 

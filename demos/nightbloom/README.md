@@ -77,6 +77,14 @@ proves it on a bullet-hell:
   battle-tick age; the phase augury arrives through the effect shell
   (`backend.ts`).
 
+**Sound** is an output, never an input: the engine emits `SfxKind` events
+(the hit thock, the kill pop, graze pings, spell declarations, the dawn
+arpeggio) into a host sound sink. `sfx.ts` installs one where WebAudio
+exists — every voice is synthesized from oscillators and a deterministic
+noise buffer, no assets — and resumes on the first key press per the
+browser's autoplay policy. The headless sim and the PSP never install a
+sink, and the simulation is byte-identical either way.
+
 `test/nightbloom.sim.test.ts` drives two tapes through the headless sim
 host: THE MARKSMAN, a full clear (~171 s — every form flies, three reach
 stage III, the diva's last card breaks with 4 of 5 forms alive), and THE
