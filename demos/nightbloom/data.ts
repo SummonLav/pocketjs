@@ -89,7 +89,7 @@ const SHOT_STYLE = "tiny cute pixel art game projectile icon, rounded kawaii sha
 // The roster — the five pilotable plant forms
 // ---------------------------------------------------------------------------
 
-export type PlantId = "primrose" | "bamboo" | "catnip" | "lantern" | "sakura";
+export type PlantId = "primrose" | "catnip" | "sakura";
 
 export interface SpellDef {
   name: string;
@@ -122,8 +122,6 @@ export interface PlantDef {
   spell: SpellDef;
 }
 
-// The pilotable roster. Bamboo and the stone lantern stay in the tables as
-// reserve content (their art and stats remain), but only these three fly.
 export const PLANT_ORDER: PlantId[] = ["catnip", "sakura", "primrose"];
 
 export const PLANTS: Record<PlantId, PlantDef> = {
@@ -142,21 +140,6 @@ export const PLANTS: Record<PlantId, PlantDef> = {
     law: "HOMING ORBS, AND IT DANCES WITH DEATH: WIDER GRAZE, DOUBLE GLOW",
     spell: { name: "NINE LIVES", hint: "9 HOMING ORBS + CLEAR NEAR", cooldown: 18 },
   },
-  bamboo: {
-    id: "bamboo",
-    name: "BAMBOO ARBALEST",
-    stageNames: ["SHOOT", "ARBALEST", "WARCANE"],
-    hp: [100, 125, 150],
-    armor: [1, 2, 3],
-    speed: 100,
-    dmg: [13, 16, 19],
-    period: [0.24, 0.21, 0.18],
-    streams: [1, 2, 2],
-    sprites: ["p-bamboo-1.png", "p-bamboo-2.png", "p-bamboo-3.png"],
-    evolveAt: [460, 1500],
-    law: "PIERCING BOLTS. GROWS BY THE WOUNDS IT DEALS",
-    spell: { name: "PIERCING GALE", hint: "A BEAM UP THE COLUMN", cooldown: 18 },
-  },
   sakura: {
     id: "sakura",
     name: "SAKURA SENTINEL",
@@ -171,21 +154,6 @@ export const PLANTS: Record<PlantId, PlantDef> = {
     evolveAt: [420, 1400],
     law: "SOFT PETALS, TRUE DAMAGE -- AND EVERY HIT HEALS THE MOST WOUNDED",
     spell: { name: "PETALFALL", hint: "CLEAR EVERY SHOT, SLOW ALL", cooldown: 15 },
-  },
-  lantern: {
-    id: "lantern",
-    name: "STONE LANTERN",
-    stageNames: ["LANTERN", "WARDSTONE", "BULWARK"],
-    hp: [200, 290, 380],
-    armor: [3, 5, 8],
-    speed: 70,
-    dmg: [18, 24, 30],
-    period: [0.5, 0.46, 0.42],
-    streams: [1, 1, 2],
-    sprites: ["p-lantern-1.png", "p-lantern-2.png", "p-lantern-3.png"],
-    evolveAt: [480, 1600],
-    law: "SLOW AND STONE. GROWS BY THE BLOWS IT ENDURES TOO",
-    spell: { name: "STONEHEART", hint: "FULL HEAL + 2s SHIELD", cooldown: 15 },
   },
   primrose: {
     id: "primrose",
@@ -427,7 +395,6 @@ export type SfxKind =
 
 /** Player shot art (enemy danmaku is drawn as native dots). */
 export const SHOTS = {
-  bolt: { sprite: "shot-bolt.png" },
   orb: { sprite: "shot-orb.png" },
   mochi: { sprite: "shot-mochi.png" },
   banana: { sprite: "shot-banana.png" },
@@ -441,7 +408,6 @@ export const SCENES = {
   title: "bg-title.png",
   dawn: "bg-dawn.png",
   eternal: "bg-eternal.png",
-  field: "bg-field.png",
 } as const;
 
 export const MOTE_SPRITE = "mote.png";
@@ -509,21 +475,11 @@ export const ART: ArtEntry[] = [
     w: UNIT, h: UNIT, seed: 1012, transparent: true, direction: "east",
     initFrom: "p-primrose-2.png", initStrength: 320,
   },
-  ...plantArt(PLANTS.bamboo, [
-    "chubby young jade bamboo shoot with a determined cute face, little leaf arms hugging one tiny dart",
-    "the same bamboo grown into an archer, crossbow-like leaf arms drawn, focused eyes, jade green",
-    "the same bamboo as an elite arbalest, twin dart launchers, gold trim, battle-worn leaf cape",
-  ], 1020),
   ...plantArt(PLANTS.catnip, [
     "tiny baby kitten sprout, small and round, sleek black fur with golden paws chest and ear tips, a white crescent moon mark on its forehead, leaf ears, huge adorable eyes, curled leaf tail",
     "the same black and gold cat grown into a young sleek two-tailed cat blossom, taller now, white crescent moon mark glowing on its forehead, golden bell collar, playful grin, two swishing leaf tails",
     "the same black and gold cat fully grown, a large regal spirit cat, many glowing petal tails fanned wide, a bright white full moon mark shining on its forehead, tiny golden crown, sparkling whiskers",
   ], 1030),
-  ...plantArt(PLANTS.lantern, [
-    "small round stone garden lantern with a fluffy mossy cap and a gentle warm smiling face",
-    "the same stone lantern grown stout, ivy strap armor, brighter amber glow, sturdy stance",
-    "the same stone lantern as a cozy little fortress with a kind carved guardian face, warm gold light, soft ivy plates",
-  ], 1040),
   ...plantArt(PLANTS.sakura, [
     "tiny baby cherry blossom sapling, small and round with a shy blushing face and big soft eyes, a few pink petals drifting",
     "the same cherry tree grown taller into a young blossom guardian, swirl of pink petals, calm smile",
@@ -551,7 +507,6 @@ export const ART: ArtEntry[] = [
     "the same fluffy night sparrow as a radiant little diva, soft plume crown, spiral of glowing song light, sweet face",
   ], 2040),
   // --- projectiles + mote (32x32, transparent, drawn at 16px) ---------------
-  { name: "shot-bolt.png", prompt: `slim jade bamboo dart flying sideways, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3001, transparent: true },
   { name: "shot-orb.png", prompt: `round pink energy orb with a tiny paw print, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3002, transparent: true },
   { name: "shot-mochi.png", prompt: `small round white mochi rice cake, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3003, transparent: true },
   { name: "mote.png", prompt: `small silver-blue moonlight droplet, sparkling, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3004, transparent: true },
@@ -563,14 +518,6 @@ export const ART: ArtEntry[] = [
       "stone shrine in a night garden under an enormous full moon, sakura tree and bamboo grove, " +
       "fireflies, deep indigo sky, cozy dreamy soft pastel night, gentle glow, detailed pixel art",
     w: SCENE_W, h: SCENE_H, seed: 4001, shading: "detailed shading", detail: "highly detailed",
-  },
-  {
-    name: "bg-field.png",
-    prompt:
-      "empty night garden battlefield seen from above, five horizontal mossy lawn rows between " +
-      "a small stone shrine on the far left and a dark bamboo treeline on the far right, " +
-      "full moon glow, deep indigo and teal palette, subdued flat pixel art, no creatures",
-    w: SCENE_W, h: SCENE_H, seed: 4002, shading: "medium shading", detail: "highly detailed",
   },
   {
     name: "bg-dawn.png",

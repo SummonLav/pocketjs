@@ -55,14 +55,16 @@ awake, and the night takes the run.
 
 Spell cards double as bullet clears: NINE LIVES (homing burst), PETALFALL
 (clear every shot on the field), MOONRISE (+100 glow to the whole waking
-roster). Bamboo and the stone lantern remain in the tables as reserve
-content.
+roster).
 
 The avatar is alive, not a decal: it breathes on a tick-driven bob, leans
-into its strafe, and **grows with its stage** — 22 px, 27 px, 32 px, each
-stage its own portrait, pokemon-style (the hitbox never grows; what you
-dodge with is always the little white dot). When a `?` card wakes, a
-rainbow comet sweeps it left to right.
+into its strafe and **mirrors to face the way it flies**, and **grows with
+its stage** — 22 px, 27 px, 32 px, each stage its own portrait,
+pokemon-style (the hitbox never grows; what you dodge with is always the
+little white dot). When a `?` card wakes, a slanted rainbow shine sweeps
+it left to right, trailing colored dust that thins with distance. And the
+world never stops scrolling: a foe you don't kill rides the drift off the
+bottom of the field — nothing parks on the screen forever.
 
 **Two evolution laws.** Forms grow by their own work — glow comes from the
 damage the piloted form deals, the motes it gathers (auto-collected above

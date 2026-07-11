@@ -162,10 +162,7 @@ function PlayerNode(props: { game: Nightbloom }) {
         opacity: blink() ? 1 : 0.35,
       }}
     >
-      <Image class="w-full h-full" src={sprite()} />
-      <Show when={g.shield()}>
-        <View class="absolute w-[26] h-[26] rounded-full border-2 border-amber-300" />
-      </Show>
+      <Image class="w-full h-full" src={sprite()} style={{ scaleX: g.facing() }} />
       <Show when={g.focus()}>
         <View class="absolute w-1 h-1 rounded-full bg-white" style={{ insetL: size() / 2 - 2, insetT: size() / 2 - 2 }} />
       </Show>
@@ -267,8 +264,8 @@ function PlayerShotNode(props: { game: Nightbloom; shotId: number }) {
         ) : (
           <Image
             class="absolute w-[12] h-[12]"
-            src={s.kind === "orb" ? SHOTS.orb.sprite : SHOTS.bolt.sprite}
-            style={{ insetL: s.x() - FIELD.x0 - 6, insetT: s.y() - FIELD.y0 - 6, rotate: s.kind === "orb" ? 0 : -90 }}
+            src={SHOTS.orb.sprite}
+            style={{ insetL: s.x() - FIELD.x0 - 6, insetT: s.y() - FIELD.y0 - 6 }}
           />
         )
       }
@@ -304,12 +301,6 @@ function Field(props: { game: Nightbloom }) {
     >
       <Starfield game={g} />
       <View class="absolute left-0 right-0 h-[1] bg-[#33415566]" style={{ insetT: POC_Y - FIELD.y0 }} />
-      <Show when={g.fxTick() - g.beam() < 20 && g.beam() > 0}>
-        <View
-          class="absolute w-[40] bg-emerald-200 opacity-50 rounded-sm"
-          style={{ insetL: g.px() - FIELD.x0 - 20, insetT: 0, height: FIELD.h }}
-        />
-      </Show>
       <For each={g.motes()}>
         {(m) => (
           <Image class="absolute w-[10] h-[10]" src="mote.png" style={{ insetL: m.x() - FIELD.x0 - 5, insetT: m.y() - FIELD.y0 - 5 }} />
@@ -393,6 +384,21 @@ function LeftPanel(props: { game: Nightbloom }) {
   );
 }
 
+/** The reveal's particle tail: offsets grow quadratically so the dust is
+ *  densest right behind the shine and thins with distance; rows and colors
+ *  are scattered by index. A constant table — the animation is pure
+ *  translateX off the reveal progress. */
+const SWEEP_TAIL = Array.from({ length: 12 }, (_, i) => ({
+  back: 5 + i * i * 0.55 + i * 2,
+  y: [4, 22, 12, 28, 8, 18, 26, 6, 15, 24, 10, 20][i],
+  cls:
+    i % 3 === 0
+      ? "absolute w-1 h-1 rounded-full bg-pink-300"
+      : i % 3 === 1
+        ? "absolute w-1 h-1 rounded-full bg-cyan-300"
+        : "absolute w-1 h-1 rounded-full bg-amber-300",
+}));
+
 function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState }) {
   const g = props.game;
   const p = props.plant;
@@ -430,14 +436,28 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
     <View class={cardClass()}>
       <Show when={reveal() >= 0}>
         <View class="absolute inset-0 rounded-md overflow-hidden">
+          {/* the slanted shine head */}
           <View
-            class="absolute w-[16] bg-gradient-to-r from-pink-400 to-cyan-300 opacity-70"
-            style={{ insetT: 0, height: 34, translateX: -20 + reveal() * 150 }}
+            class="absolute w-[14] bg-gradient-to-r from-pink-400 to-cyan-300 opacity-70"
+            style={{ insetT: -8, height: 52, rotate: 18, translateX: -20 + reveal() * 150 }}
           />
           <View
-            class="absolute w-[8] bg-gradient-to-r from-amber-300 to-pink-400 opacity-60"
-            style={{ insetT: 0, height: 34, translateX: -34 + reveal() * 150 }}
+            class="absolute w-[6] bg-gradient-to-r from-amber-300 to-pink-400 opacity-60"
+            style={{ insetT: -8, height: 52, rotate: 18, translateX: -32 + reveal() * 150 }}
           />
+          {/* the particle tail — spacing widens away from the head */}
+          <For each={SWEEP_TAIL}>
+            {(pt) => (
+              <View
+                class={pt.cls}
+                style={{
+                  insetT: pt.y,
+                  translateX: -20 + reveal() * 150 - pt.back,
+                  opacity: Math.max(0, 0.9 - pt.back / 60),
+                }}
+              />
+            )}
+          </For>
         </View>
       </Show>
       <Image class="w-[20] h-[20]" src={def.sprites[p.stage() - 1]} />

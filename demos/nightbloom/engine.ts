@@ -175,7 +175,7 @@ export interface EnemyShot {
   grazed: boolean;
 }
 
-export type PlayerShotKind = "bolt" | "orb" | "petal" | "banana";
+export type PlayerShotKind = "orb" | "petal" | "banana";
 
 export interface PlayerShot {
   id: number;
@@ -233,12 +233,13 @@ export interface Nightbloom {
   py: Accessor<number>;
   focus: Accessor<boolean>;
   invuln: Accessor<boolean>;
-  shield: Accessor<boolean>;
   activeIdx: Accessor<number>;
   roster: PlantState[];
   active: () => PlantState;
   /** -1 | 0 | 1 — the strafe direction, for the avatar's lean. */
   lastDx: Accessor<number>;
+  /** 1 faces right (the art's rest pose), -1 mirrors left. */
+  facing: Accessor<number>;
   /** The pilot is dead and the last-breath switch window is open. */
   wilting: Accessor<boolean>;
   wiltSeconds: Accessor<number>;
@@ -253,7 +254,6 @@ export interface Nightbloom {
   /** The battle tick, for age-deriving float fx drift and star parallax. */
   fxTick: Accessor<number>;
   toasts: Accessor<Toast[]>;
-  beam: Accessor<number>;
   frame: (buttons: number) => void;
   start: () => void;
   toTitle: () => void;
@@ -265,7 +265,10 @@ const RAM_DMG = 20;
 /** Bullet cap — spawns beyond this are skipped, deterministically. */
 const MAX_ENEMY_SHOTS = 72;
 /** Hovering foes (wisp, uta) stay on station this long, then drift on. */
-const STATION_TICKS = 12 * TPS;
+const STATION_TICKS = 8 * TPS;
+/** The world scrolls on beneath everyone: even a hovering foe sinks with it,
+ *  so an unkilled monster always leaves the field eventually. */
+const WORLD_DRIFT = 10 / TPS;
 const MAX_PLAYER_SHOTS = 40;
 const MAX_MOTES = 24;
 
@@ -288,7 +291,6 @@ export function createNightbloom(): Nightbloom {
   const py = cell(PLAYER_SPAWN.y);
   const focus = cell(false);
   const invulnOn = cell(false);
-  const shieldOn = cell(false);
   const activeIdx = cell(0);
   const foes = cell<FoeInst[]>([]);
   const boss = cell<BossInst | null>(null);
@@ -300,7 +302,6 @@ export function createNightbloom(): Nightbloom {
   const fxs = cell<FloatFx[]>([]);
   const toasts = cell<Toast[]>([]);
   const fxTick = cell(0);
-  const beam = cell(0);
 
   const roster: PlantState[] = PLANT_ORDER.map((kind, i) => ({
     kind,
@@ -323,7 +324,6 @@ export function createNightbloom(): Nightbloom {
   let fireCd = 0;
   let switchCd = 0;
   let invulnTicks = 0;
-  let shieldTicks = 0;
   let midbossDone = false;
   let bossDone = false;
   let wiltTicks = 0;
@@ -331,6 +331,7 @@ export function createNightbloom(): Nightbloom {
   const wilting = cell(false);
   const wiltSeconds = cell(0);
   const lastDx = cell(0);
+  const facing = cell(1);
 
   // -- deterministic helpers ------------------------------------------------
 
@@ -381,7 +382,6 @@ export function createNightbloom(): Nightbloom {
     fireCd = 0;
     switchCd = 0;
     invulnTicks = 0;
-    shieldTicks = 0;
     midbossDone = false;
     bossDone = false;
     phase.set("dusk");
@@ -396,7 +396,6 @@ export function createNightbloom(): Nightbloom {
     py.set(PLAYER_SPAWN.y);
     focus.set(false);
     invulnOn.set(false);
-    shieldOn.set(false);
     activeIdx.set(0);
     foes.set([]);
     boss.set(null);
@@ -408,12 +407,12 @@ export function createNightbloom(): Nightbloom {
     fxs.set([]);
     toasts.set([]);
     fxTick.set(0);
-    beam.set(0);
     wiltTicks = 0;
     rescues = 0;
     wilting.set(false);
     wiltSeconds.set(0);
     lastDx.set(0);
+    facing.set(1);
     roster.forEach((p, i) => {
       p.stage.set(1);
       p.hp.set(PLANTS[p.kind].hp[0]);
@@ -598,12 +597,11 @@ export function createNightbloom(): Nightbloom {
   }
 
   function hurtPlayer(dmg: number): void {
-    if (invulnTicks > 0 || shieldTicks > 0 || wilting()) return;
+    if (invulnTicks > 0 || wilting()) return;
     const p = active();
     const def = PLANTS[p.kind];
     const eff = Math.max(1, dmg - def.armor[p.stage() - 1]);
     p.hp.set(p.hp() - eff);
-    if (PLANTS[p.kind].id === "lantern") grantGlow(p, eff); // endures law
     invulnTicks = HURT_TICKS;
     fx(px(), py() - 12, `-${eff}`, "hurt");
     sfx("hurt");
@@ -667,27 +665,12 @@ export function createNightbloom(): Nightbloom {
           vx: 0, vy: -170, dmg: def.dmg[s], pierce: false, through: 0, homing: true, owner,
         });
       }
-    } else if (p.kind === "bamboo") {
-      for (let i = 0; i < streams; i++) {
-        add.push({
-          id: ++idSeq, kind: "bolt", x: cell(px() + (i - (streams - 1) / 2) * 8), y: cell(py() - 12),
-          vx: 0, vy: -230, dmg: def.dmg[s], pierce: false, through: p.stage(), homing: false, owner,
-        });
-      }
     } else if (p.kind === "sakura") {
       for (let i = 0; i < streams; i++) {
         const a = -16 + (i - (streams - 1) / 2) * 2; // fan around straight up
         add.push({
           id: ++idSeq, kind: "petal", x: cell(px()), y: cell(py() - 10),
           vx: cosA(a) * 150, vy: sinA(a) * 150, dmg: def.dmg[s], pierce: true, through: 0, homing: false, owner,
-        });
-      }
-    } else if (p.kind === "lantern") {
-      // reserve content — the lantern is not on the pilotable roster
-      for (let i = 0; i < streams; i++) {
-        add.push({
-          id: ++idSeq, kind: "bolt", x: cell(px() + (i - (streams - 1) / 2) * 12), y: cell(py() - 12),
-          vx: 0, vy: -140, dmg: def.dmg[s], pierce: false, through: 0, homing: false, owner,
         });
       }
     } else {
@@ -724,12 +707,6 @@ export function createNightbloom(): Nightbloom {
         const dy = sh.y() - py();
         return dx * dx + dy * dy > 70 * 70;
       }));
-    } else if (p.kind === "bamboo") {
-      beam.set(tick);
-      for (const f of [...foes()]) if (Math.abs(f.x() - px()) < 26) hitFoe(f, 60, true, owner);
-      const b = boss();
-      if (b && Math.abs(b.x() - px()) < 34) hitBoss(b, 60, owner);
-      enemyShots.set(enemyShots().filter((sh) => Math.abs(sh.x() - px()) >= 26));
     } else if (p.kind === "sakura") {
       for (const f of [...foes()]) {
         hitFoe(f, 18, true, owner);
@@ -738,9 +715,6 @@ export function createNightbloom(): Nightbloom {
       const b = boss();
       if (b) hitBoss(b, 18, owner);
       enemyShots.set([]);
-    } else if (p.kind === "lantern") {
-      p.hp.set(plantMaxHp(p));
-      shieldTicks = 2 * TPS;
     } else {
       for (const r of roster) if (ready(r)) grantGlow(r, 100);
     }
@@ -794,6 +768,7 @@ export function createNightbloom(): Nightbloom {
       dy *= 0.7071;
     }
     lastDx.set(Math.sign(dx));
+    if (dx !== 0) facing.set(dx < 0 ? -1 : 1); // mirror into the strafe, keep it after
     px.set(Math.max(FIELD.x0 + PLAYER_INSET, Math.min(FIELD.x0 + FIELD.w - PLAYER_INSET, px() + dx * speed)));
     py.set(Math.max(FIELD.y0 + PLAYER_INSET, Math.min(FIELD.y0 + FIELD.h - PLAYER_INSET, py() + dy * speed)));
 
@@ -811,9 +786,7 @@ export function createNightbloom(): Nightbloom {
 
     if (switchCd > 0) switchCd--;
     if (invulnTicks > 0) invulnTicks--;
-    if (shieldTicks > 0) shieldTicks--;
     invulnOn.set(invulnTicks > 0);
-    shieldOn.set(shieldTicks > 0);
 
     for (const r of roster) {
       if (r.spellCdTicks > 0) r.spellCdTicks--;
@@ -841,6 +814,7 @@ export function createNightbloom(): Nightbloom {
         } else if (f.station > 0) {
           f.station--;
           f.x.set(f.x() + f.vx * spd * 0.5);
+          f.y.set(f.y() + WORLD_DRIFT); // the view slides forward regardless
         } else {
           f.y.set(f.y() + spd * 1.4); // the song moves on
         }
@@ -1217,11 +1191,11 @@ export function createNightbloom(): Nightbloom {
     py,
     focus,
     invuln: invulnOn,
-    shield: shieldOn,
     activeIdx,
     roster,
     active,
     lastDx,
+    facing,
     wilting,
     wiltSeconds,
     foes,
@@ -1234,7 +1208,6 @@ export function createNightbloom(): Nightbloom {
     fxs,
     fxTick,
     toasts,
-    beam,
     frame,
     start,
     toTitle,
