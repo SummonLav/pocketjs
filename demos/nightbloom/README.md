@@ -50,8 +50,8 @@ awake, and the night takes the run.
 | form | wakes | shot | the ability |
 | --- | --- | --- | --- |
 | CATNIP KIT | at dusk | homing orbs | a black-and-gold moon cat, a white moon waxing on its brow; **dances with death** — wider graze ring, double graze glow |
-| SAKURA SENTINEL | first ascension | petal fan, true damage | **the healer** — every damaging petal mends the most wounded waking form by 1, at the price of soft hits |
-| MOON PRIMROSE | the midboss's fall | **spinning bananas**, thrown hard | a hulking gorilla with carved abs and the sweetest little face; heavy slow volleys, and motes are worth double glow to him |
+| SAKURA SENTINEL | first ascension | petal fan, true damage | **the healer** — every damaging petal mends the most wounded waking form by 1; her hits are soft on purpose |
+| MOON PRIMROSE | the midboss's fall | **banana boomerangs** | a hulking gorilla with carved abs and the sweetest little face; at most three aloft, each cuts through on the way out AND the way home, and only a caught banana can be thrown again (the HUD counts his hand); motes are worth double glow |
 
 Spell cards double as bullet clears: NINE LIVES (homing burst), PETALFALL
 (clear every shot on the field), MOONRISE (+100 glow to the whole waking

@@ -162,7 +162,7 @@ function PlayerNode(props: { game: Nightbloom }) {
         opacity: blink() ? 1 : 0.35,
       }}
     >
-      <Image class="w-full h-full" src={sprite()} style={{ scaleX: g.facing() }} />
+      <Image class="w-full h-full" src={sprite()} style={{ scaleX: g.facing() * PLANTS[g.active().kind].artFacing }} />
       <Show when={g.focus()}>
         <View class="absolute w-1 h-1 rounded-full bg-white" style={{ insetL: size() / 2 - 2, insetT: size() / 2 - 2 }} />
       </Show>
@@ -502,6 +502,20 @@ function RightPanel(props: { game: Nightbloom }) {
         <For each={g.roster}>{(p, i) => <RosterCard game={g} idx={i()} plant={p} />}</For>
       </View>
       <View class="grow" />
+      <Show when={g.active().kind === "primrose"}>
+        <View class="flex-row items-center gap-1 p-1 rounded-md border border-slate-800 bg-[#020617aa]">
+          <Text class="text-xs text-slate-500 tracking-wide">BANANAS</Text>
+          <For each={[0, 1, 2]}>
+            {(i) => (
+              <Image
+                class="w-[12] h-[12]"
+                src="shot-banana.png"
+                style={{ opacity: g.playerShots().filter((sh) => sh.kind === "banana").length > i ? 0.25 : 1 }}
+              />
+            )}
+          </For>
+        </View>
+      </Show>
       <View class="flex-row items-center gap-2 p-1 rounded-md border border-slate-800 bg-[#020617aa]">
         <View
           class="w-4 h-4 bg-amber-300"

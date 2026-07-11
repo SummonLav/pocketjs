@@ -38,6 +38,7 @@ import { after, ticksPerFrame } from "@pocketjs/framework/clock";
 import { runEffect } from "@pocketjs/framework/effects";
 import { BTN } from "@pocketjs/framework/input";
 import {
+  BANANA,
   BOSS,
   BOSS_AT,
   BOSS_PHASE_BOUNTY,
@@ -190,6 +191,11 @@ export interface PlayerShot {
   /** How many more bodies a bolt may pass through. */
   through: number;
   homing: boolean;
+  /** Banana boomerang: true once it has turned and is flying home. */
+  ret: boolean;
+  /** Banana boomerang: ticks until it may damage again (it never despawns
+   *  on a hit — it cuts through). */
+  hitCd: number;
   /** Roster index that fired it — glow is credited to the worker. */
   owner: number;
 }
@@ -662,7 +668,7 @@ export function createNightbloom(): Nightbloom {
       for (let i = 0; i < streams; i++) {
         add.push({
           id: ++idSeq, kind: "orb", x: cell(px() + (i - (streams - 1) / 2) * 10), y: cell(py() - 10),
-          vx: 0, vy: -170, dmg: def.dmg[s], pierce: false, through: 0, homing: true, owner,
+          vx: 0, vy: -170, dmg: def.dmg[s], pierce: false, through: 0, homing: true, ret: false, hitCd: 0, owner,
         });
       }
     } else if (p.kind === "sakura") {
@@ -670,17 +676,22 @@ export function createNightbloom(): Nightbloom {
         const a = -16 + (i - (streams - 1) / 2) * 2; // fan around straight up
         add.push({
           id: ++idSeq, kind: "petal", x: cell(px()), y: cell(py() - 10),
-          vx: cosA(a) * 150, vy: sinA(a) * 150, dmg: def.dmg[s], pierce: true, through: 0, homing: false, owner,
+          vx: cosA(a) * 150, vy: sinA(a) * 150, dmg: def.dmg[s], pierce: true, through: 0, homing: false, ret: false, hitCd: 0, owner,
         });
       }
     } else {
-      // the gorilla: heavy spinning bananas, thrown hard
-      for (let i = 0; i < streams; i++) {
-        add.push({
-          id: ++idSeq, kind: "banana", x: cell(px() + (i - (streams - 1) / 2) * 12), y: cell(py() - 12),
-          vx: (i - (streams - 1) / 2) * 16, vy: -175, dmg: def.dmg[s], pierce: false, through: 0, homing: false, owner,
-        });
+      // the gorilla: banana boomerangs — at most BANANA.max aloft, and a
+      // throw only leaves a hand that holds one
+      const aloft = shots.filter((sh) => sh.kind === "banana").length;
+      if (aloft >= BANANA.max) {
+        fireCd = 6; // hands empty — look again shortly
+        return;
       }
+      add.push({
+        id: ++idSeq, kind: "banana", x: cell(px()), y: cell(py() - 12),
+        vx: 0, vy: -BANANA.throwVy[s], dmg: def.dmg[s], pierce: false, through: 0,
+        homing: false, ret: false, hitCd: 0, owner,
+      });
     }
     playerShots.set([...shots, ...add]);
     fireCd = Math.round(def.period[s] * TPS);
@@ -698,7 +709,7 @@ export function createNightbloom(): Nightbloom {
         add.push({
           id: ++idSeq, kind: "orb", x: cell(px()), y: cell(py() - 8),
           vx: cosA(-32 + i * 7) * 120, vy: sinA(-32 + i * 7) * 120 - 60,
-          dmg: 24, pierce: true, through: 0, homing: true, owner,
+          dmg: 24, pierce: true, through: 0, homing: true, ret: false, hitCd: 0, owner,
         });
       }
       playerShots.set([...playerShots(), ...add]);
@@ -957,6 +968,55 @@ export function createNightbloom(): Nightbloom {
   function tickShots(): void {
     // player shots
     for (const sh of [...playerShots()]) {
+      if (sh.kind === "banana") {
+        // out, turn, home, and into the hand
+        if (!sh.ret) {
+          sh.vy += BANANA.decel / TPS;
+          if (sh.vy >= 0) sh.ret = true;
+        } else {
+          const dx = px() - sh.x();
+          const dy = py() - sh.y();
+          const len = Math.sqrt(dx * dx + dy * dy) || 1;
+          sh.vx = (dx / len) * BANANA.back;
+          sh.vy = (dy / len) * BANANA.back;
+        }
+        sh.x.set(sh.x() + sh.vx / TPS);
+        sh.y.set(sh.y() + sh.vy / TPS);
+        if (sh.hitCd > 0) sh.hitCd--;
+        if (sh.hitCd <= 0) {
+          let struck = false;
+          for (const f of [...foes()]) {
+            const fdx = f.x() - sh.x();
+            const fdy = f.y() - sh.y();
+            if (fdx * fdx + fdy * fdy <= 13 * 13) {
+              hitFoe(f, sh.dmg, sh.pierce, sh.owner);
+              struck = true;
+              break; // one body per touch; it keeps flying
+            }
+          }
+          if (!struck) {
+            const b = boss();
+            if (b) {
+              const bdx = b.x() - sh.x();
+              const bdy = b.y() - sh.y();
+              if (bdx * bdx + bdy * bdy <= 22 * 22) {
+                hitBoss(b, sh.dmg, sh.owner);
+                struck = true;
+              }
+            }
+          }
+          if (struck) sh.hitCd = BANANA.hitCd;
+        }
+        if (sh.ret) {
+          const cdx = px() - sh.x();
+          const cdy = py() - sh.y();
+          if (cdx * cdx + cdy * cdy <= BANANA.catchR * BANANA.catchR) {
+            playerShots.set(playerShots().filter((x) => x.id !== sh.id));
+            sfx("mote"); // back in the hand
+          }
+        }
+        continue; // a boomerang ignores the walls and the one-hit despawn
+      }
       if (sh.homing) {
         // steer toward the nearest target (quantized lerp, then renormalize)
         let tx = 0;

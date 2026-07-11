@@ -108,6 +108,10 @@ export interface PlantDef {
   armor: [number, number, number];
   /** Unfocused movement speed in px/s (focus halves it). */
   speed: number;
+  /** Which way the committed ART faces at rest: 1 = right, -1 = left. The
+   *  renderer mirrors with facing * artFacing so every form looks where it
+   *  flies regardless of how its portrait came out of the generator. */
+  artFacing: 1 | -1;
   /** Shot damage per bullet and seconds between volleys, per stage. */
   dmg: [number, number, number];
   period: [number, number, number];
@@ -132,6 +136,7 @@ export const PLANTS: Record<PlantId, PlantDef> = {
     hp: [110, 140, 170],
     armor: [0, 0, 0],
     speed: 120,
+    artFacing: 1,
     dmg: [7, 8, 10],
     period: [0.34, 0.3, 0.26],
     streams: [1, 2, 2],
@@ -147,7 +152,8 @@ export const PLANTS: Record<PlantId, PlantDef> = {
     hp: [110, 140, 170],
     armor: [0, 1, 2],
     speed: 105,
-    dmg: [5, 7, 9],
+    artFacing: -1,
+    dmg: [3, 4, 5],
     period: [0.34, 0.3, 0.26],
     streams: [3, 5, 7],
     sprites: ["p-sakura-1.png", "p-sakura-2.png", "p-sakura-3.png"],
@@ -162,12 +168,13 @@ export const PLANTS: Record<PlantId, PlantDef> = {
     hp: [100, 125, 150],
     armor: [0, 0, 0],
     speed: 110,
+    artFacing: -1,
     dmg: [14, 18, 22],
     period: [0.42, 0.38, 0.34],
-    streams: [1, 2, 2],
+    streams: [1, 1, 1],
     sprites: ["p-primrose-1.png", "p-primrose-2.png", "p-primrose-3.png"],
     evolveAt: [360, 1200],
-    law: "THROWS BANANAS, HARD. MOTES ARE WORTH DOUBLE TO HIM",
+    law: "BANANA BOOMERANGS: THREE ALOFT, CATCH THEM COMING BACK. MOTES x2",
     spell: { name: "MOONRISE", hint: "+100 GLOW TO THE WHOLE ROSTER", cooldown: 15 },
   },
 };
@@ -184,6 +191,19 @@ export const CATNIP_GRAZE_MULT = 2;
 /** Sakura's kindness: every damaging petal heals the most wounded waking
  *  form this much. */
 export const SAKURA_HEAL = 1;
+/** The gorilla's boomerangs: at most `max` aloft; thrown up at `throwVy`
+ *  px/s (per stage), decelerating `decel` px/s^2 until they turn, then
+ *  homing back at `back` px/s. Caught within `catchR` px. A banana never
+ *  despawns on a hit — it cuts through and hits again on the way home,
+ *  one touch per `hitCd` ticks. */
+export const BANANA = {
+  max: 3,
+  throwVy: [240, 265, 290],
+  decel: 260,
+  back: 240,
+  catchR: 14,
+  hitCd: 18,
+} as const;
 /** Player hitbox radius, px (danmaku-small; SQUARE focus reveals it). */
 export const HIT_R = 3;
 /** Seconds of mercy invulnerability after taking a hit. */

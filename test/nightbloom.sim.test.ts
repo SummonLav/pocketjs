@@ -7,7 +7,7 @@
 // 1/60 s micro-ticks (ticksPerFrame() per host frame).
 //
 // Two tapes:
-//   THE MARKSMAN — a full clear (~163 s): the catnip opens the night alone,
+//   THE MARKSMAN — a full clear (~183 s): the catnip opens the night alone,
 //                  its first ascension wakes the sakura, the midboss's fall
 //                  rouses the gorilla, and the rotation walks all three
 //                  through the pilot seat to break the diva's last card.
@@ -38,7 +38,7 @@ import { runScenario, treeHasText, type Trace } from "../host-sim/sim.ts";
 import { BTN } from "../spec/spec.ts";
 import { validateContent } from "../demos/nightbloom/data.ts";
 
-const MARKSMAN_SECONDS = 190; // dawn settles at ~162.0 s
+const MARKSMAN_SECONDS = 190; // dawn settles at ~182.8 s
 const SLEEPER_SECONDS = 60; // the lone catnip falls at ~40 s
 
 // THE MARKSMAN — sweep-dodge and rotate. The switch presses no-op while a
@@ -162,9 +162,9 @@ describe("nightbloom: the night actually happened", () => {
     for (const t of [m60, m2]) {
       expect(treeHasText(t.tree, "DAWN BREAKS")).toBe(true);
       expect(treeHasText(t.tree, "THE DIVA FALLS SILENT")).toBe(true);
-      expect(treeHasText(t.tree, "SCORE: 8280")).toBe(true);
-      expect(treeHasText(t.tree, "GRAZE: 56")).toBe(true);
-      expect(treeHasText(t.tree, "FOES FELLED: 34")).toBe(true);
+      expect(treeHasText(t.tree, "SCORE: 8435")).toBe(true);
+      expect(treeHasText(t.tree, "GRAZE: 78")).toBe(true);
+      expect(treeHasText(t.tree, "FOES FELLED: 33")).toBe(true);
       // The whole roster woke and every form survived to see the sun.
       expect(treeHasText(t.tree, "GREATEST BLOOM: STAGE 3")).toBe(true);
       expect(treeHasText(t.tree, "SURVIVING FORMS: 3 OF 3 AWAKENED")).toBe(true);
