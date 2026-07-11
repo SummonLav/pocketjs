@@ -39,7 +39,18 @@ import {
   SHOTS,
   WAVES,
 } from "./data.ts";
-import { createNightbloom, FX_LIFE, STAMP_AT, STAMP_IMPACT, type FloatFx, type Nightbloom, type PlantState } from "./engine.ts";
+import {
+  createNightbloom,
+  FX_LIFE,
+  STAMP_AT,
+  STAMP_IMPACT,
+  type EnemyShot,
+  type FloatFx,
+  type FoeInst,
+  type Nightbloom,
+  type PlantState,
+  type PlayerShot,
+} from "./engine.ts";
 
 // ---------------------------------------------------------------------------
 // Title / endings
@@ -230,30 +241,29 @@ function PlayerNode(props: { game: Nightbloom }) {
   );
 }
 
-function FoeNode(props: { game: Nightbloom; foeId: number }) {
-  const g = props.game;
-  const foe = () => g.foes().find((f) => f.id === props.foeId);
+// Swarm nodes take their entity straight from <For> — the item reference is
+// stable for the entity's whole life, so an id -> find() indirection would
+// only rescan the array (O(n) per node) on every spawn/despawn. Positions are
+// plain fields; the style effects subscribe to fxTick, the one signal the
+// tick bumps, and re-read them each battle tick.
+function FoeNode(props: { game: Nightbloom; foe: FoeInst }) {
+  const t = props.game.fxTick;
+  const f = props.foe;
+  const def = FOES[f.kind];
   return (
-    <Show when={foe()} keyed>
-      {(f) => {
-        const def = FOES[f.kind];
-        return (
-          <View
-            debugName="Foe"
-            class="absolute items-center"
-            style={{ insetL: f.x() - FIELD.x0 - 13, insetT: f.y() - FIELD.y0 - 13, width: 26, height: 30 }}
-          >
-            <Image class="w-[26] h-[26]" src={def.sprites[f.stage - 1]} />
-            <View class="absolute left-1 right-1 top-0 h-1 rounded-sm bg-[#02061799]">
-              <View
-                class="h-1 rounded-sm bg-red-400 origin-left w-full"
-                style={{ scaleX: Math.max(0, f.hp() / def.hp[f.stage - 1]) }}
-              />
-            </View>
-          </View>
-        );
-      }}
-    </Show>
+    <View
+      debugName="Foe"
+      class="absolute items-center"
+      style={{ insetL: (t(), f.x - FIELD.x0 - 13), insetT: f.y - FIELD.y0 - 13, width: 26, height: 30 }}
+    >
+      <Image class="w-[26] h-[26]" src={def.sprites[f.stage - 1]} />
+      <View class="absolute left-1 right-1 top-0 h-1 rounded-sm bg-[#02061799]">
+        <View
+          class="h-1 rounded-sm bg-red-400 origin-left w-full"
+          style={{ scaleX: Math.max(0, f.hp() / def.hp[f.stage - 1]) }}
+        />
+      </View>
+    </View>
   );
 }
 
@@ -304,62 +314,50 @@ function BossNode(props: { game: Nightbloom }) {
   );
 }
 
-function EnemyShotNode(props: { game: Nightbloom; shotId: number }) {
-  const g = props.game;
-  const shot = () => g.enemyShots().find((s) => s.id === props.shotId);
-  return (
-    <Show when={shot()} keyed>
-      {(s) =>
-        s.kind === "mochi" ? (
-          <Image
-            class="absolute w-[12] h-[12]"
-            src="shot-mochi.png"
-            style={{ insetL: s.x() - FIELD.x0 - 6, insetT: s.y() - FIELD.y0 - 6 }}
-          />
-        ) : (
-          <View
-            class={
-              s.kind === "pink"
-                ? "absolute w-2 h-2 rounded-full bg-pink-300 border border-pink-100"
-                : s.kind === "cyan"
-                  ? "absolute w-2 h-2 rounded-full bg-cyan-300 border border-cyan-100"
-                  : "absolute w-2 h-2 rounded-full bg-amber-300 border border-amber-100"
-            }
-            style={{ insetL: s.x() - FIELD.x0 - 4, insetT: s.y() - FIELD.y0 - 4 }}
-          />
-        )
+function EnemyShotNode(props: { game: Nightbloom; shot: EnemyShot }) {
+  const t = props.game.fxTick;
+  const s = props.shot;
+  return s.kind === "mochi" ? (
+    <Image
+      class="absolute w-[12] h-[12]"
+      src="shot-mochi.png"
+      style={{ insetL: (t(), s.x - FIELD.x0 - 6), insetT: s.y - FIELD.y0 - 6 }}
+    />
+  ) : (
+    <View
+      class={
+        s.kind === "pink"
+          ? "absolute w-2 h-2 rounded-full bg-pink-300 border border-pink-100"
+          : s.kind === "cyan"
+            ? "absolute w-2 h-2 rounded-full bg-cyan-300 border border-cyan-100"
+            : "absolute w-2 h-2 rounded-full bg-amber-300 border border-amber-100"
       }
-    </Show>
+      style={{ insetL: (t(), s.x - FIELD.x0 - 4), insetT: s.y - FIELD.y0 - 4 }}
+    />
   );
 }
 
-function PlayerShotNode(props: { game: Nightbloom; shotId: number }) {
-  const g = props.game;
-  const shot = () => g.playerShots().find((s) => s.id === props.shotId);
-  return (
-    <Show when={shot()} keyed>
-      {(s) =>
-        s.kind === "petal" ? (
-          <View class="absolute w-1 h-2 rounded-full bg-pink-200" style={{ insetL: s.x() - FIELD.x0 - 2, insetT: s.y() - FIELD.y0 - 4 }} />
-        ) : s.kind === "banana" ? (
-          <Image
-            class="absolute w-[14] h-[14]"
-            src="shot-banana.png"
-            style={{
-              insetL: s.x() - FIELD.x0 - 7,
-              insetT: s.y() - FIELD.y0 - 7,
-              rotate: ((g.fxTick() * 9 + s.id * 40) % 360),
-            }}
-          />
-        ) : (
-          <Image
-            class="absolute w-[12] h-[12]"
-            src={SHOTS.orb.sprite}
-            style={{ insetL: s.x() - FIELD.x0 - 6, insetT: s.y() - FIELD.y0 - 6 }}
-          />
-        )
-      }
-    </Show>
+function PlayerShotNode(props: { game: Nightbloom; shot: PlayerShot }) {
+  const t = props.game.fxTick;
+  const s = props.shot;
+  return s.kind === "petal" ? (
+    <View class="absolute w-1 h-2 rounded-full bg-pink-200" style={{ insetL: (t(), s.x - FIELD.x0 - 2), insetT: s.y - FIELD.y0 - 4 }} />
+  ) : s.kind === "banana" ? (
+    <Image
+      class="absolute w-[14] h-[14]"
+      src="shot-banana.png"
+      style={{
+        insetL: s.x - FIELD.x0 - 7,
+        insetT: s.y - FIELD.y0 - 7,
+        rotate: ((t() * 9 + s.id * 40) % 360),
+      }}
+    />
+  ) : (
+    <Image
+      class="absolute w-[12] h-[12]"
+      src={SHOTS.orb.sprite}
+      style={{ insetL: (t(), s.x - FIELD.x0 - 6), insetT: s.y - FIELD.y0 - 6 }}
+    />
   );
 }
 
@@ -393,14 +391,14 @@ function Field(props: { game: Nightbloom }) {
       <View class="absolute left-0 right-0 h-[1] bg-[#33415566]" style={{ insetT: POC_Y - FIELD.y0 }} />
       <For each={g.motes()}>
         {(m) => (
-          <Image class="absolute w-[10] h-[10]" src="mote.png" style={{ insetL: m.x() - FIELD.x0 - 5, insetT: m.y() - FIELD.y0 - 5 }} />
+          <Image class="absolute w-[10] h-[10]" src="mote.png" style={{ insetL: (g.fxTick(), m.x - FIELD.x0 - 5), insetT: m.y - FIELD.y0 - 5 }} />
         )}
       </For>
-      <For each={g.foes()}>{(f) => <FoeNode game={g} foeId={f.id} />}</For>
+      <For each={g.foes()}>{(f) => <FoeNode game={g} foe={f} />}</For>
       <BossNode game={g} />
-      <For each={g.playerShots()}>{(s) => <PlayerShotNode game={g} shotId={s.id} />}</For>
+      <For each={g.playerShots()}>{(s) => <PlayerShotNode game={g} shot={s} />}</For>
       <PlayerNode game={g} />
-      <For each={g.enemyShots()}>{(s) => <EnemyShotNode game={g} shotId={s.id} />}</For>
+      <For each={g.enemyShots()}>{(s) => <EnemyShotNode game={g} shot={s} />}</For>
       <For each={g.fxs()}>{(f) => <FxNode game={g} fx={f} />}</For>
       <Show when={g.wilting()}>
         <View
