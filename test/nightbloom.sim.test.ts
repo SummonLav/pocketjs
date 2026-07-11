@@ -168,6 +168,10 @@ describe("nightbloom: the night actually happened", () => {
       // The whole roster woke and every form survived to see the sun.
       expect(treeHasText(t.tree, "GREATEST BLOOM: STAGE 3")).toBe(true);
       expect(treeHasText(t.tree, "SURVIVING FORMS: 3 OF 3 AWAKENED")).toBe(true);
+      // The dawn decorations congratulate the wrong things, precisely.
+      expect(treeHasText(t.tree, "MERCY MEDAL -- 2 FOES STROLLED OFF UNHARMED")).toBe(true);
+      expect(treeHasText(t.tree, "PINCUSHION -- STRUCK 33 TIMES AND PROUD")).toBe(true);
+      expect(treeHasText(t.tree, "LITTERBUG -- 24 MOTES LEFT IN THE GRASS")).toBe(true);
     }
   });
 
