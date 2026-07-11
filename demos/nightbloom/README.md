@@ -1,17 +1,20 @@
 # NIGHTBLOOM — a garden against the eternal night
 
-A lane-defense danmaku garden on the PocketJS deterministic runtime: one
-shrine, five lanes, an eternal night in the garden-defense grammar of
-*Plants vs. Zombies*, flavored after the eternal-night youkai stories of the
-Touhou fangame tradition. Plants that ascend by doing their own work, a horde
-that ascends with the hour, and a possession mechanic that turns any planted
-ally into the player's own trigger finger.
+A vertical danmaku shooter on the PocketJS deterministic runtime, in the
+grammar of Touhou's *Imperishable Night*: the player pilots one plant at the
+bottom of a portrait playfield, the eternal-night youkai horde descends from
+the treeline above, and the piloted form switches mid-fight — five plants,
+five shot types, five spell cards, one three-card final boss. The art is the
+garden-defense bestiary, PixelLab-generated and committed.
 
-![NIGHTBLOOM mid-battle: the possessed catnip kit holds the middle lane](../../assets/screenshots/nightbloom.png)
+On the 480x272 landscape screen the field is the classic arcade adaptation:
+a portrait column in the center, HUD panels on both sides (the night on the
+left, the roster on the right).
 
-*Midnight, wave 8 of 12. The possessed CATNIP KIT (amber ring) volleys three
-lanes while a KASA RONIN chews the stone lantern — and ascends to WARLORD for
-finishing it.*
+![NIGHTBLOOM: the NIGHT SPARROW DIVA's first card](../../assets/screenshots/nightbloom.png)
+
+*The witching hour. The NIGHT SPARROW DIVA opens NIGHT SONG — WANDERING
+CHORUS; the catnip kit answers from below, NINE LIVES on the wing.*
 
 ## Play it
 
@@ -21,65 +24,65 @@ bun scripts/dev.ts nightbloom-main    # then open http://127.0.0.1:8130/?demo=ni
 
 | input | keyboard | does |
 | --- | --- | --- |
-| d-pad | arrows | move the cell cursor (hold to repeat) |
-| CROSS | X | plant the selected seed / feed the plant under the cursor (25 lumen) |
-| SQUARE | A | cycle the seed packet |
-| CIRCLE | Z / Enter | possess the plant under the cursor; hold to CHANNEL (rapid fire) |
-| L / R | Q / E | switch possession across the roster |
-| TRIANGLE | S | cast the possessed plant's spell card |
-| SELECT | Shift | the garden codex (stats + the laws) |
+| d-pad | arrows | fly (8-way) |
+| CROSS (hold) | X | fire |
+| SQUARE (hold) | A | focus — half speed, hitbox shown |
+| CIRCLE / R | Z / E | switch to the next living form |
+| L | Q | switch back |
+| TRIANGLE | S | the piloted form's spell card |
+| SELECT | Shift | the garden codex (forms, foes, laws) |
 | START | Space | start / pause |
 
-Survive to dawn (150 virtual seconds, 12 waves, three night phases). The
-shrine holds three wards; each breach spends one, and the fourth ends the
-night for good.
+Survive the night: nine waves across DUSK and MIDNIGHT, a midboss, and THE
+NIGHT SPARROW DIVA's three spell cards at the witching hour. When a form
+wilts the next one takes the stick; lose all five and the night is eternal.
 
-## The two evolution laws
+## The roster — five forms, five answers
 
-Everything on the field evolves through stage I -> II -> III, on two clocks:
+| form | shot | the trade |
+| --- | --- | --- |
+| CATNIP KIT | homing orbs | never misses, hits soft; the boss-killer |
+| BAMBOO ARBALEST | piercing bolts | straight lines, hits through bodies |
+| SAKURA SENTINEL | petal fan | true damage — the KASA RONIN's armor means nothing |
+| STONE LANTERN | slow heavy shots | armor + a huge pool; STONEHEART heals it full |
+| MOON PRIMROSE | thin twin streams | motes are worth double glow to her |
 
-- **Plants grow by their own work.** Attackers earn glow for damage dealt,
-  the producer for lumen gathered, the wall for blows endured — cross the
-  thresholds and the plant ascends (new art, new stats, new behavior).
-  Feeding (CROSS on a plant) buys glow for lumen and hurries the bloom.
-- **Foes grow with the hour.** DUSK sends stage I, MIDNIGHT II, the WITCHING
-  HOUR III — and a foe that finishes eating a plant ascends on the spot,
-  heals, and keeps walking.
+Spell cards double as bullet clears: NINE LIVES (homing burst), PIERCING
+GALE (a beam up the column), PETALFALL (clear every shot on the field),
+STONEHEART (full heal + shield), MOONRISE (+80 glow to the whole roster).
 
-The matchups are data, not scripts (`data.ts`): the KASA RONIN's armor shrugs
-bamboo bolts but petals deal true damage; the MOON RABBIT lobs mochi from
-three cells out, so walls alone can't answer it; the NIGHT SPARROW's song
-hastens her lane until someone silences her.
-
-| plants | | foes | |
-| --- | --- | --- | --- |
-| MOON PRIMROSE | lumen producer | LANTERN WISP | cheap, steady, endless |
-| BAMBOO ARBALEST | lane shooter | KASA RONIN | armored blade wall |
-| CATNIP KIT | the cat. spread volleys, NINE LIVES | MOON RABBIT | fast ranged lobber |
-| STONE LANTERN | wall; thorns from stage II | NIGHT SPARROW | haste-aura support |
-| SAKURA SENTINEL | true-damage petal bursts | | |
+**Two evolution laws.** Forms grow by their own work — glow comes from the
+damage the piloted form deals, the motes it gathers (auto-collected above
+the high line, the PoC), and the bullets it grazes — and ascend I → II → III
+into wider patterns and deeper pools. Foes grow with the hour: DUSK sends
+stage I, MIDNIGHT II, the WITCHING HOUR III.
 
 ## What it demonstrates, mechanically
 
 tidelight proved the deterministic runtime on a branching story; NIGHTBLOOM
-proves it on a real-time action game:
+proves it on a bullet-hell:
 
-- the battle advances in fixed 1/60 s micro-ticks, `ticksPerFrame()` per host
-  frame, batches aligned so the tick count at any virtual second is identical
-  at every `simulationHz` — **the 2 Hz world plays the same night, gameplay
-  included** (`?hz=2` on the web host to watch it);
-- edges land on the first tick of a frame's batch; held input (d-pad repeat,
-  the channel) gates on a half-second of held ticks plus a frame boundary, so
-  a one-frame pulse means the same thing at every rate;
-- waves draw lanes from one seeded xorshift32 stream; float fx drift by
+- the battle advances in **fixed 1/60 s micro-ticks**, `ticksPerFrame()` per
+  host frame, batches aligned so the tick count at any virtual second is
+  identical at every `simulationHz` — **the 2 Hz world dodges the same
+  spiral** (`?hz=2` on the web host to watch it);
+- danmaku pattern math runs on a **quantized sine table** (1/8192 steps),
+  because raw `Math.sin` is not bit-specified across JS engines and a spiral
+  must replay byte-exactly on every host;
+- press edges land on the first tick of a frame's batch; held verbs
+  (movement, fire, focus) read the raw held mask, whose level track goes
+  true at the same battle tick at every rate — hold-driven tapes subsample
+  exactly;
+- waves draw entry slots from one seeded xorshift32; float fx drift by
   battle-tick age; the phase augury arrives through the effect shell
-  (`backend.ts`) — nothing anywhere reads a wall clock.
+  (`backend.ts`).
 
-`test/nightbloom.sim.test.ts` drives two tapes through the headless sim host:
-THE GARDENER, a full 170 s winning night (31 kills, one ward spent, a stage
-III bloom), and THE SLEEPER, an untouched loss. It asserts repeat-identity,
-chaos immunity, strict 4 Hz / 2 Hz subsampling of both tapes, cross-rate
-byte-equal outcome screens, augury effect timing, and the exact end-screen
+`test/nightbloom.sim.test.ts` drives two tapes through the headless sim
+host: THE MARKSMAN, a full clear (~171 s — every form flies, three reach
+stage III, the diva's last card breaks with 4 of 5 forms alive), and THE
+SLEEPER, an untouched loss. It asserts repeat-identity, chaos immunity,
+strict 4 Hz / 2 Hz subsampling of both tapes, cross-rate byte-equal outcome
+screens, augury effect timing, and the exact score / graze / kill / bloom
 ledger. Wired into `bun run test`.
 
 ## Content pipeline
@@ -96,13 +99,8 @@ bun demos/nightbloom/gen-assets.ts --only=p-catnip-2.png
 ```
 
 Evolution stages are `init_image` chains — stage II derives from stage I,
-III from II — so a creature keeps its identity as it ascends: the same
-identity-preserving trick tidelight uses for portrait moods, applied to a
-whole bestiary. Stats, prompts and sprite filenames live in one table, so a
-creature's numbers and its art can never drift apart
-(`validateContent()` is part of the sim test).
-
-Auth: `PIXELLAB_API_KEY` in the repo root `.env` (gitignored). Units are
-32x32 (drawn at 38 px in a 48x42 cell), projectiles 32x32 drawn at 16 px
-(the pixflux minimum canvas is 32x32), scenes 256x128 (pow2) drawn at
-480x240.
+III from II — so a creature keeps its identity as it ascends. Stats, prompts
+and sprite filenames live in one table (`validateContent()` runs in the sim
+test), and the bosses wear the stage-III art drawn large. Enemy danmaku is
+native dots (no textures) — player shots, mochi and motes use the sprite
+art. Auth: `PIXELLAB_API_KEY` in the repo root `.env` (gitignored).

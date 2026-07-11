@@ -1,7 +1,11 @@
-// demos/nightbloom/engine.ts — the night engine: a fixed-timestep garden
-// battle folded over the virtual clock. No JSX here; app.tsx is a thin
-// renderer over these signals, which keeps the whole game host-agnostic and
-// sim-testable — the tidelight architecture, applied to a real-time game.
+// demos/nightbloom/engine.ts — the night engine: a vertical danmaku battle
+// folded over the virtual clock. No JSX here; app.tsx is a thin renderer
+// over these signals, which keeps the whole game host-agnostic and
+// sim-testable — the tidelight architecture, applied to a bullet-hell.
+//
+// The player pilots one plant form at the bottom of the field, switches
+// forms mid-fight (CIRCLE / L / R), holds CROSS to fire and SQUARE to focus,
+// and answers the descending horde's patterns with per-form spell cards.
 //
 // Determinism contract (DETERMINISM.md):
 //   - the world advances in MICRO-TICKS on the core's fixed 1/60 s grid: a
@@ -12,54 +16,68 @@
 //   - edge-detected input is applied on the FIRST tick of its host frame's
 //     batch: a press at second P lands on battle tick (P - tStart) * 60 + 1
 //     at every valid hz, which keeps input-driven runs subsample-exact;
-//   - held input (d-pad repeat, the CIRCLE channel) acts only after a
-//     half-second of held ticks AND a frame boundary (the sustained mask), so
-//     a one-frame pulse means the same thing at 2 Hz (a 30-tick hold) as it
-//     does at 60 Hz (a 1-tick hold);
-//   - float fx drift by battle-tick age, not wall-clock tweens, so cosmetics
-//     subsample as exactly as the sim;
+//   - held input (movement, fire, focus) reads the raw held mask per tick:
+//     a HOLD's level track goes true at the same battle tick at every rate,
+//     so hold-driven tapes subsample exactly (one-frame pulses of held verbs
+//     are not rate-portable; tapes steer with holds, as tidelight's cadence
+//     rules already demand);
+//   - pattern math uses a QUANTIZED sine table (1/8192 steps), because raw
+//     Math.sin is not bit-specified across JS engines and a danmaku spiral
+//     must replay byte-exactly on every host;
 //   - randomness is one seeded xorshift32 stream drawn only inside ticks —
-//     lane picks are as replayable as everything else;
-//   - toasts expire through after() on the virtual clock, epoch-guarded so a
-//     reset night can never be touched by the last one;
-//   - the phase omen arrives through the effect shell (backend.ts) with a
-//     whole-second latency, quantized to frame boundaries per rate.
+//     spawn slots are as replayable as everything else;
+//   - float fx drift by battle-tick age; toasts expire through after() on
+//     the virtual clock, epoch-guarded; the phase omen arrives through the
+//     effect shell (backend.ts).
 
 import { createSignal, type Accessor } from "solid-js";
 import { after, ticksPerFrame } from "@pocketjs/framework/clock";
 import { runEffect } from "@pocketjs/framework/effects";
 import { BTN } from "@pocketjs/framework/input";
 import {
-  BITE_PERIOD,
-  BOARD,
-  BREACH_X,
-  CHANNEL_RATE,
-  DAWN_AT,
-  FED_HEAL,
-  FEED_COST,
-  FEED_GLOW,
+  BOSS,
+  BOSS_AT,
+  BOSS_PHASE_BOUNTY,
+  FIELD,
+  FOCUS_RATE,
   FOES,
-  MOONFALL_LUMEN,
-  MOONFALL_PERIOD,
+  GRAZE_GLOW,
+  GRAZE_R,
+  HIT_R,
+  HURT_INVULN,
+  MIDBOSS,
+  MIDBOSS_AT,
+  MOTE_GLOW,
   NIGHT_SEED,
   PHASES,
   PLANT_ORDER,
   PLANTS,
-  POSSESS_RATE,
-  SHOTS,
-  SPAWN_X,
-  START_LUMEN,
+  PLAYER_INSET,
+  PLAYER_SPAWN,
+  POC_Y,
+  SWITCH_COOLDOWN,
   TPS,
-  WARDS,
+  UTA_HASTE,
   WAVES,
-  cellCX,
+  type BossDef,
   type FoeId,
   type PhaseId,
   type PlantId,
-  type ShotKind,
 } from "./data.ts";
 
 export type Outcome = "title" | "battle" | "dawn" | "eternal";
+
+// ---------------------------------------------------------------------------
+// Quantized trig — bit-identical on every JS engine
+// ---------------------------------------------------------------------------
+
+/** 64-step sine table quantized to 1/8192: far coarser than any engine's
+ *  last-ulp sin() divergence, so the values are cross-engine constants. */
+const SIN: number[] = Array.from({ length: 64 }, (_, i) => Math.round(Math.sin((i / 64) * Math.PI * 2) * 8192) / 8192);
+const sinA = (a: number): number => SIN[((a % 64) + 64) % 64];
+const cosA = (a: number): number => SIN[(((a + 16) % 64) + 64) % 64];
+/** Angle index pointing straight down (+y). 0 = +x, quarter turn = 16. */
+const A_DOWN = 16;
 
 // ---------------------------------------------------------------------------
 // Reactive cells — a signal dressed as a readable-callable with .set()
@@ -81,43 +99,84 @@ function cell<T>(v: T): Cell<T> {
 // Entities
 // ---------------------------------------------------------------------------
 
-export interface PlantInst {
-  id: number;
+export interface PlantState {
   kind: PlantId;
-  row: number;
-  col: number;
-  /** Evolution stage 1..3. */
   stage: Cell<number>;
   hp: Cell<number>;
   glow: Cell<number>;
-  /** 0..1 — how ready the spell is (drives the HUD arc). */
+  /** 0..1 — spell readiness for the HUD arc. */
   spellReady: Cell<number>;
-  cdTicks: number;
   spellCdTicks: number;
 }
 
 export interface FoeInst {
   id: number;
   kind: FoeId;
-  row: number;
-  stage: Cell<number>;
+  stage: number;
   x: Cell<number>;
+  y: Cell<number>;
   hp: Cell<number>;
+  /** wisp/uta hover altitude; usagi weave direction lives in vx. */
+  hoverY: number;
+  vx: number;
+  fireCd: number;
   slowUntil: number;
-  biteCd: number;
-  lobCd: number;
+  /** Hover ticks left before a wisp/uta drifts on down. */
+  station: number;
 }
 
-export interface ShotInst {
-  id: number;
-  kind: ShotKind;
-  row: number;
+export interface BossInst {
+  def: BossDef;
+  /** True for the midboss (waves resume after it breaks). */
+  mid: boolean;
+  phase: Cell<number>;
+  hp: Cell<number>;
   x: Cell<number>;
+  y: Cell<number>;
+  timeoutTicks: number;
+  fireCd: number;
+  fireCd2: number;
+  /** Spiral angle cursor (table index units). */
+  spiral: number;
+  born: number;
+}
+
+export type EnemyShotKind = "pink" | "cyan" | "amber" | "mochi";
+
+export interface EnemyShot {
+  id: number;
+  kind: EnemyShotKind;
+  x: Cell<number>;
+  y: Cell<number>;
+  vx: number;
+  vy: number;
+  dmg: number;
+  grazed: boolean;
+}
+
+export type PlayerShotKind = "bolt" | "orb" | "petal" | "heavy";
+
+export interface PlayerShot {
+  id: number;
+  kind: PlayerShotKind;
+  x: Cell<number>;
+  y: Cell<number>;
+  vx: number;
+  vy: number;
   dmg: number;
   /** True damage ignores armor (petals, spells). */
   pierce: boolean;
-  /** Owning plant id for the glow ledger (friendly shots only). */
-  owner?: number;
+  /** How many more bodies a bolt may pass through. */
+  through: number;
+  homing: boolean;
+  /** Roster index that fired it — glow is credited to the worker. */
+  owner: number;
+}
+
+export interface MoteInst {
+  id: number;
+  x: Cell<number>;
+  y: Cell<number>;
 }
 
 export interface FloatFx {
@@ -126,7 +185,6 @@ export interface FloatFx {
   y: number;
   text: string;
   tone: "lumen" | "hurt" | "ward" | "evolve";
-  /** Battle tick the float was born — its drift is a pure function of age. */
   born: number;
 }
 
@@ -142,77 +200,90 @@ export interface Nightbloom {
   outcome: Accessor<Outcome>;
   paused: Accessor<boolean>;
   codex: Accessor<boolean>;
-  lumen: Accessor<number>;
-  wards: Accessor<number>;
-  kills: Accessor<number>;
   phase: Accessor<PhaseId>;
   augury: Accessor<string>;
-  /** Night progress 0..1 (toward dawn). */
-  progress: Accessor<number>;
   second: Accessor<number>;
   waveIdx: Accessor<number>;
-  cursorRow: Accessor<number>;
-  cursorCol: Accessor<number>;
-  seed: Accessor<PlantId>;
-  possessed: Accessor<PlantInst | null>;
-  plants: Accessor<PlantInst[]>;
+  score: Accessor<number>;
+  graze: Accessor<number>;
+  kills: Accessor<number>;
+  bestStage: Accessor<number>;
+  px: Accessor<number>;
+  py: Accessor<number>;
+  focus: Accessor<boolean>;
+  invuln: Accessor<boolean>;
+  shield: Accessor<boolean>;
+  activeIdx: Accessor<number>;
+  roster: PlantState[];
+  active: () => PlantState;
   foes: Accessor<FoeInst[]>;
-  shots: Accessor<ShotInst[]>;
+  boss: Accessor<BossInst | null>;
+  bossCard: Accessor<string>;
+  bossCardSeconds: Accessor<number>;
+  enemyShots: Accessor<EnemyShot[]>;
+  playerShots: Accessor<PlayerShot[]>;
+  motes: Accessor<MoteInst[]>;
   fxs: Accessor<FloatFx[]>;
-  /** The battle tick, for age-deriving float fx drift. */
+  /** The battle tick, for age-deriving float fx drift and star parallax. */
   fxTick: Accessor<number>;
   toasts: Accessor<Toast[]>;
-  bestStage: Accessor<number>;
-  /** Route one host frame: held button mask in, ticksPerFrame() ticks out. */
+  beam: Accessor<number>;
   frame: (buttons: number) => void;
   start: () => void;
   toTitle: () => void;
 }
 
-const DIRS = [
-  { mask: BTN.UP, dr: -1, dc: 0 },
-  { mask: BTN.DOWN, dr: 1, dc: 0 },
-  { mask: BTN.LEFT, dr: 0, dc: -1 },
-  { mask: BTN.RIGHT, dr: 0, dc: 1 },
-] as const;
+// Enemy contact/bullet damage by foe stage (bosses use the stage-3 value).
+const BULLET_DMG = [9, 11, 13];
+const RAM_DMG = 20;
+/** Bullet cap — spawns beyond this are skipped, deterministically. */
+const MAX_ENEMY_SHOTS = 72;
+/** Hovering foes (wisp, uta) stay on station this long, then drift on. */
+const STATION_TICKS = 12 * TPS;
+const MAX_PLAYER_SHOTS = 40;
+const MAX_MOTES = 24;
 
-// Held-input gates. A held button acts only once it has been down for a full
-// half second of ticks AND across a frame boundary (the `sustained` mask):
-// a one-frame pulse at 2 Hz holds a button for 30 ticks, and without the
-// sustained gate it would repeat/channel where a 60 Hz pulse would not —
-// the gate makes pulses and holds mean the same thing at every rate.
-/** Held d-pad starts repeating after this many held ticks (> one 2 Hz batch). */
-const REPEAT_DELAY = 31;
-/** ...and then steps once per this many ticks. */
-const REPEAT_EVERY = 9;
-/** The CIRCLE channel spins up after the same half-second squeeze. */
-const CHANNEL_DELAY = 31;
-
-const BITE_TICKS = Math.round(BITE_PERIOD * TPS);
-/** How close (px) a walking foe must get to a plant's center to latch on. */
-const BITE_REACH = 14;
+const SWITCH_TICKS = Math.round(SWITCH_COOLDOWN * TPS);
+const HURT_TICKS = Math.round(HURT_INVULN * TPS);
 
 export function createNightbloom(): Nightbloom {
   const outcome = cell<Outcome>("title");
   const paused = cell(false);
   const codex = cell(false);
-  const lumen = cell(START_LUMEN);
-  const wards = cell(WARDS);
-  const kills = cell(0);
   const phase = cell<PhaseId>("dusk");
   const augury = cell("");
   const second = cell(0);
   const waveIdx = cell(0);
-  const cursorRow = cell(2);
-  const cursorCol = cell(2);
-  const seedIdx = cell(0);
-  const possessedId = cell<number | null>(null);
-  const plants = cell<PlantInst[]>([]);
+  const score = cell(0);
+  const graze = cell(0);
+  const kills = cell(0);
+  const bestStage = cell(1);
+  const px = cell(PLAYER_SPAWN.x);
+  const py = cell(PLAYER_SPAWN.y);
+  const focus = cell(false);
+  const invulnOn = cell(false);
+  const shieldOn = cell(false);
+  const activeIdx = cell(0);
   const foes = cell<FoeInst[]>([]);
-  const shots = cell<ShotInst[]>([]);
+  const boss = cell<BossInst | null>(null);
+  const bossCard = cell("");
+  const bossCardSeconds = cell(0);
+  const enemyShots = cell<EnemyShot[]>([]);
+  const playerShots = cell<PlayerShot[]>([]);
+  const motes = cell<MoteInst[]>([]);
   const fxs = cell<FloatFx[]>([]);
   const toasts = cell<Toast[]>([]);
-  const bestStage = cell(1);
+  const fxTick = cell(0);
+  const beam = cell(0);
+
+  const roster: PlantState[] = PLANT_ORDER.map((kind) => ({
+    kind,
+    stage: cell(1),
+    hp: cell(PLANTS[kind].hp[0]),
+    glow: cell(0),
+    spellReady: cell(1),
+    spellCdTicks: 0,
+  }));
 
   let tick = 0;
   let prevButtons = 0;
@@ -221,9 +292,12 @@ export function createNightbloom(): Nightbloom {
   let epoch = 0;
   let nextWave = 0;
   let nextPhase = 0;
-  let chanTicks = 0;
-  const dirHeld: number[] = [0, 0, 0, 0];
-  const fxTick = cell(0);
+  let fireCd = 0;
+  let switchCd = 0;
+  let invulnTicks = 0;
+  let shieldTicks = 0;
+  let midbossDone = false;
+  let bossDone = false;
 
   // -- deterministic helpers ------------------------------------------------
 
@@ -249,23 +323,11 @@ export function createNightbloom(): Nightbloom {
     fxs.set([...fxs(), { id: ++idSeq, x, y, text, tone, born: tick }]);
   }
 
-  // -- lookups ----------------------------------------------------------------
+  const active = (): PlantState => roster[activeIdx()];
+  const alive = (p: PlantState): boolean => p.hp() > 0;
+  const plantMaxHp = (p: PlantState): number => PLANTS[p.kind].hp[p.stage() - 1];
 
-  const plantAt = (row: number, col: number): PlantInst | undefined =>
-    plants().find((p) => p.row === row && p.col === col);
-
-  const possessed = (): PlantInst | null => {
-    const id = possessedId();
-    if (id === null) return null;
-    return plants().find((p) => p.id === id) ?? null;
-  };
-
-  const plantMaxHp = (p: PlantInst): number => PLANTS[p.kind].hp[p.stage() - 1];
-
-  /** Row-major possession order. */
-  const roster = (): PlantInst[] => [...plants()].sort((a, b) => a.row * BOARD.cols + a.col - (b.row * BOARD.cols + b.col));
-
-  // -- state churn -------------------------------------------------------------
+  // -- state churn -----------------------------------------------------------
 
   function reset(): void {
     epoch++;
@@ -273,28 +335,44 @@ export function createNightbloom(): Nightbloom {
     rng = NIGHT_SEED >>> 0;
     nextWave = 0;
     nextPhase = 0;
-    chanTicks = 0;
-    fxTick.set(0);
-    dirHeld.fill(0);
-    lumen.set(START_LUMEN);
-    wards.set(WARDS);
-    kills.set(0);
+    fireCd = 0;
+    switchCd = 0;
+    invulnTicks = 0;
+    shieldTicks = 0;
+    midbossDone = false;
+    bossDone = false;
     phase.set("dusk");
     augury.set("");
     second.set(0);
     waveIdx.set(0);
-    cursorRow.set(2);
-    cursorCol.set(2);
-    seedIdx.set(0);
-    possessedId.set(null);
-    plants.set([]);
+    score.set(0);
+    graze.set(0);
+    kills.set(0);
+    bestStage.set(1);
+    px.set(PLAYER_SPAWN.x);
+    py.set(PLAYER_SPAWN.y);
+    focus.set(false);
+    invulnOn.set(false);
+    shieldOn.set(false);
+    activeIdx.set(0);
     foes.set([]);
-    shots.set([]);
+    boss.set(null);
+    bossCard.set("");
+    bossCardSeconds.set(0);
+    enemyShots.set([]);
+    playerShots.set([]);
+    motes.set([]);
     fxs.set([]);
     toasts.set([]);
-    bestStage.set(1);
-    paused.set(false);
-    codex.set(false);
+    fxTick.set(0);
+    beam.set(0);
+    for (const p of roster) {
+      p.stage.set(1);
+      p.hp.set(PLANTS[p.kind].hp[0]);
+      p.glow.set(0);
+      p.spellReady.set(1);
+      p.spellCdTicks = 0;
+    }
   }
 
   function start(): void {
@@ -307,225 +385,275 @@ export function createNightbloom(): Nightbloom {
     outcome.set("title");
   }
 
-  // -- combat ------------------------------------------------------------------
+  // -- evolution --------------------------------------------------------------
 
-  function grantGlow(p: PlantInst, amount: number): void {
+  function grantGlow(p: PlantState, amount: number): void {
     const def = PLANTS[p.kind];
     p.glow.set(p.glow() + amount);
     const s = p.stage();
-    if (s < 3) {
-      const need = def.evolveAt[s - 1];
-      if (p.glow() >= need) {
-        const frac = p.hp() / plantMaxHp(p);
-        p.stage.set(s + 1);
-        p.hp.set(Math.round(frac * plantMaxHp(p)));
-        if (p.stage() > bestStage()) bestStage.set(p.stage());
-        toast(`${def.name} ASCENDS: ${def.stageNames[p.stage() - 1]}`);
-        fx(cellCX(p.col), BOARD.y0 + p.row * BOARD.cellH + 4, "UP!", "evolve");
-      }
+    if (s < 3 && p.glow() >= def.evolveAt[s - 1]) {
+      const frac = alive(p) ? p.hp() / plantMaxHp(p) : 0;
+      p.stage.set(s + 1);
+      if (alive(p)) p.hp.set(Math.max(1, Math.round(frac * plantMaxHp(p))));
+      if (p.stage() > bestStage()) bestStage.set(p.stage());
+      toast(`${def.name} ASCENDS: ${def.stageNames[p.stage() - 1]}`);
+      fx(px(), py() - 14, "UP!", "evolve");
     }
   }
 
-  function hitFoe(f: FoeInst, dmg: number, pierce: boolean, owner?: number): void {
-    if (!foes().some((x) => x.id === f.id)) return; // already died this tick
-    const def = FOES[f.kind];
-    const eff = pierce ? dmg : Math.max(1, dmg - def.armor[f.stage() - 1]);
-    f.hp.set(f.hp() - eff);
-    if (owner !== undefined) {
-      const p = plants().find((pl) => pl.id === owner);
-      if (p && PLANTS[p.kind].law === "GROWS BY THE WOUNDS IT DEALS") grantGlow(p, eff);
-    }
-    if (f.hp() <= 0) killFoe(f);
-  }
+  // -- spawning ---------------------------------------------------------------
 
-  function killFoe(f: FoeInst): void {
-    const def = FOES[f.kind];
-    const bounty = def.bounty[f.stage() - 1];
-    lumen.set(lumen() + bounty);
-    kills.set(kills() + 1);
-    fx(f.x(), BOARD.y0 + f.row * BOARD.cellH + 2, `+${bounty}`, "lumen");
-    foes.set(foes().filter((x) => x.id !== f.id));
-  }
-
-  function killPlant(p: PlantInst, eater?: FoeInst): void {
-    plants.set(plants().filter((x) => x.id !== p.id));
-    if (possessedId() === p.id) possessedId.set(null);
-    if (eater) {
-      const def = FOES[eater.kind];
-      if (eater.stage() < 3) {
-        eater.stage.set(eater.stage() + 1);
-        toast(`IT FED: ${def.name} IS NOW ${def.stageNames[eater.stage() - 1]}`);
-      }
-      eater.hp.set(Math.min(def.hp[eater.stage() - 1], eater.hp() + Math.round(def.hp[eater.stage() - 1] * FED_HEAL)));
-      fx(eater.x(), BOARD.y0 + eater.row * BOARD.cellH + 4, "FED", "hurt");
-    }
-  }
-
-  function fireShot(p: PlantInst, row: number, kind: ShotKind, dmg: number, pierce: boolean): void {
-    shots.set([
-      ...shots(),
-      { id: ++idSeq, kind, row, x: cell(cellCX(p.col) + 12), dmg, pierce, owner: p.id },
+  function spawnFoe(kind: FoeId, stage: number): void {
+    const def = FOES[kind];
+    const slot = FIELD.x0 + 26 + rnd(FIELD.w - 52);
+    foes.set([
+      ...foes(),
+      {
+        id: ++idSeq,
+        kind,
+        stage,
+        x: cell(slot),
+        y: cell(FIELD.y0 - 14),
+        hp: cell(def.hp[stage - 1]),
+        hoverY: FIELD.y0 + 30 + rnd(74),
+        vx: rnd(2) === 0 ? 1 : -1,
+        fireCd: Math.round(def.firePeriod[stage - 1] * TPS * 0.6),
+        slowUntil: 0,
+        station: STATION_TICKS,
+      },
     ]);
   }
 
-  function foesAhead(row: number, x: number): boolean {
-    return foes().some((f) => f.row === row && f.x() > x);
+  function spawnBoss(def: BossDef, mid: boolean): void {
+    boss.set({
+      def,
+      mid,
+      phase: cell(0),
+      hp: cell(def.phases[0].hp),
+      x: cell(FIELD.x0 + FIELD.w / 2),
+      y: cell(FIELD.y0 + 46),
+      timeoutTicks: def.phases[0].timeout * TPS,
+      fireCd: TPS,
+      fireCd2: 2 * TPS,
+      spiral: 0,
+      born: tick,
+    });
+    bossCard.set(def.phases[0].card);
+    bossCardSeconds.set(def.phases[0].timeout);
+    toast(mid ? `${def.name} BARS THE WAY` : `${def.name} TAKES THE STAGE`);
   }
 
-  function lanesOf(p: PlantInst, spread: number): number[] {
-    const rows: number[] = [];
-    for (let r = p.row - spread; r <= p.row + spread; r++) {
-      if (r >= 0 && r < BOARD.rows) rows.push(r);
+  function enemyFire(x: number, y: number, vx: number, vy: number, kind: EnemyShotKind, dmg: number): void {
+    if (enemyShots().length >= MAX_ENEMY_SHOTS) return;
+    enemyShots.set([...enemyShots(), { id: ++idSeq, kind, x: cell(x), y: cell(y), vx, vy, dmg, grazed: false }]);
+  }
+
+  function aimedAt(x: number, y: number, speed: number): { vx: number; vy: number } {
+    const dx = px() - x;
+    const dy = py() - y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    return { vx: (dx / len) * speed, vy: (dy / len) * speed };
+  }
+
+  function dropMotes(x: number, y: number, count: number): void {
+    for (let i = 0; i < count; i++) {
+      if (motes().length >= MAX_MOTES) return;
+      motes.set([...motes(), { id: ++idSeq, x: cell(x + rnd(17) - 8), y: cell(y + rnd(9) - 4) }]);
     }
-    return rows;
   }
 
-  // -- spells --------------------------------------------------------------------
+  // -- damage ------------------------------------------------------------------
 
-  function castSpell(p: PlantInst): void {
+  function hitFoe(f: FoeInst, dmg: number, pierce: boolean, owner: number): void {
+    if (!foes().some((x) => x.id === f.id)) return;
+    const def = FOES[f.kind];
+    const eff = pierce ? dmg : Math.max(1, dmg - def.armor[f.stage - 1]);
+    f.hp.set(f.hp() - eff);
+    const p = roster[owner];
+    if (p) grantGlow(p, eff);
+    if (f.hp() <= 0) {
+      kills.set(kills() + 1);
+      score.set(score() + 100);
+      dropMotes(f.x(), f.y(), def.bounty[f.stage - 1]);
+      foes.set(foes().filter((x) => x.id !== f.id));
+    }
+  }
+
+  function hitBoss(b: BossInst, dmg: number, owner: number): void {
+    if (boss() !== b) return;
+    b.hp.set(b.hp() - dmg);
+    const p = roster[owner];
+    if (p) grantGlow(p, dmg);
+    if (b.hp() <= 0) advanceBoss(b, true);
+  }
+
+  function advanceBoss(b: BossInst, broken: boolean): void {
+    const idx = b.phase();
+    if (broken) {
+      score.set(score() + 1000);
+      toast(`SPELL CARD BROKEN: ${b.def.phases[idx].card}`);
+    } else {
+      toast(`THE CARD TIMES OUT: ${b.def.phases[idx].card}`);
+    }
+    dropMotes(b.x(), b.y(), BOSS_PHASE_BOUNTY);
+    enemyShots.set([]); // the break clears the sky
+    if (idx + 1 < b.def.phases.length) {
+      b.phase.set(idx + 1);
+      b.hp.set(b.def.phases[idx + 1].hp);
+      b.timeoutTicks = b.def.phases[idx + 1].timeout * TPS;
+      b.spiral = 0;
+      bossCard.set(b.def.phases[idx + 1].card);
+      bossCardSeconds.set(b.def.phases[idx + 1].timeout);
+    } else {
+      boss.set(null);
+      bossCard.set("");
+      if (b.mid) {
+        midbossDone = true;
+        if (broken) kills.set(kills() + 1);
+      } else {
+        bossDone = true;
+        if (broken) kills.set(kills() + 1);
+        outcome.set("dawn");
+      }
+    }
+  }
+
+  function hurtPlayer(dmg: number): void {
+    if (invulnTicks > 0 || shieldTicks > 0) return;
+    const p = active();
     const def = PLANTS[p.kind];
-    if (p.spellCdTicks > 0 || lumenSpellBlocked(p)) return;
-    const cx = cellCX(p.col);
-    const cy = BOARD.y0 + p.row * BOARD.cellH + 4;
-    if (p.kind === "primrose") {
-      lumen.set(lumen() + 80);
-      fx(cx, cy, "+80", "lumen");
+    const eff = Math.max(1, dmg - def.armor[p.stage() - 1]);
+    p.hp.set(p.hp() - eff);
+    if (PLANTS[p.kind].id === "lantern") grantGlow(p, eff); // endures law
+    invulnTicks = HURT_TICKS;
+    fx(px(), py() - 12, `-${eff}`, "hurt");
+    if (p.hp() <= 0) {
+      p.hp.set(0);
+      toast(`${def.name} WILTS`);
+      const next = roster.findIndex(alive);
+      if (next < 0) {
+        outcome.set("eternal");
+        return;
+      }
+      activeIdx.set(next);
+      toast(`NOW PILOTING: ${PLANTS[roster[next].kind].name}`);
+      invulnTicks = HURT_TICKS;
+    }
+  }
+
+  // -- player actions ------------------------------------------------------------
+
+  function switchTo(delta: number): void {
+    if (switchCd > 0) return;
+    const n = roster.length;
+    let idx = activeIdx();
+    for (let i = 0; i < n; i++) {
+      idx = (idx + delta + n) % n;
+      if (alive(roster[idx])) break;
+    }
+    if (idx === activeIdx() || !alive(roster[idx])) return;
+    activeIdx.set(idx);
+    switchCd = SWITCH_TICKS;
+    toast(`NOW PILOTING: ${PLANTS[roster[idx].kind].name}`);
+  }
+
+  function fireVolley(): void {
+    const p = active();
+    const def = PLANTS[p.kind];
+    const s = p.stage() - 1;
+    if (playerShots().length >= MAX_PLAYER_SHOTS) return;
+    const shots = playerShots();
+    const add: PlayerShot[] = [];
+    const owner = activeIdx();
+    const streams = def.streams[s];
+    if (p.kind === "catnip") {
+      for (let i = 0; i < streams; i++) {
+        add.push({
+          id: ++idSeq, kind: "orb", x: cell(px() + (i - (streams - 1) / 2) * 10), y: cell(py() - 10),
+          vx: 0, vy: -170, dmg: def.dmg[s], pierce: false, through: 0, homing: true, owner,
+        });
+      }
     } else if (p.kind === "bamboo") {
-      for (const f of [...foes()]) if (f.row === p.row) hitFoe(f, 45, true, p.id);
-      fx(cx, cy, "GALE!", "evolve");
-    } else if (p.kind === "catnip") {
-      const rows = new Set(lanesOf(p, p.stage() >= 3 ? BOARD.rows : 1));
-      for (const f of [...foes()]) if (rows.has(f.row)) hitFoe(f, 28, true, p.id);
-      fx(cx, cy, "NINE LIVES!", "evolve");
+      for (let i = 0; i < streams; i++) {
+        add.push({
+          id: ++idSeq, kind: "bolt", x: cell(px() + (i - (streams - 1) / 2) * 8), y: cell(py() - 12),
+          vx: 0, vy: -230, dmg: def.dmg[s], pierce: false, through: p.stage(), homing: false, owner,
+        });
+      }
+    } else if (p.kind === "sakura") {
+      for (let i = 0; i < streams; i++) {
+        const a = -16 + (i - (streams - 1) / 2) * 2; // fan around straight up
+        add.push({
+          id: ++idSeq, kind: "petal", x: cell(px()), y: cell(py() - 10),
+          vx: cosA(a) * 150, vy: sinA(a) * 150, dmg: def.dmg[s], pierce: true, through: 0, homing: false, owner,
+        });
+      }
     } else if (p.kind === "lantern") {
-      p.hp.set(plantMaxHp(p));
-      fx(cx, cy, "STONEHEART", "evolve");
+      for (let i = 0; i < streams; i++) {
+        add.push({
+          id: ++idSeq, kind: "heavy", x: cell(px() + (i - (streams - 1) / 2) * 12), y: cell(py() - 12),
+          vx: 0, vy: -140, dmg: def.dmg[s], pierce: false, through: 0, homing: false, owner,
+        });
+      }
+    } else {
+      for (let i = 0; i < streams; i++) {
+        add.push({
+          id: ++idSeq, kind: "bolt", x: cell(px() + (i - (streams - 1) / 2) * 9), y: cell(py() - 10),
+          vx: (i - (streams - 1) / 2) * 12, vy: -205, dmg: def.dmg[s], pierce: false, through: 0, homing: false, owner,
+        });
+      }
+    }
+    playerShots.set([...shots, ...add]);
+    fireCd = Math.round(def.period[s] * TPS);
+  }
+
+  function castSpell(): void {
+    const p = active();
+    if (p.spellCdTicks > 0) return;
+    const def = PLANTS[p.kind];
+    const owner = activeIdx();
+    if (p.kind === "catnip") {
+      const add: PlayerShot[] = [];
+      for (let i = 0; i < 9; i++) {
+        add.push({
+          id: ++idSeq, kind: "orb", x: cell(px()), y: cell(py() - 8),
+          vx: cosA(-32 + i * 7) * 120, vy: sinA(-32 + i * 7) * 120 - 60,
+          dmg: 24, pierce: true, through: 0, homing: true, owner,
+        });
+      }
+      playerShots.set([...playerShots(), ...add]);
+      enemyShots.set(enemyShots().filter((sh) => {
+        const dx = sh.x() - px();
+        const dy = sh.y() - py();
+        return dx * dx + dy * dy > 70 * 70;
+      }));
+    } else if (p.kind === "bamboo") {
+      beam.set(tick);
+      for (const f of [...foes()]) if (Math.abs(f.x() - px()) < 26) hitFoe(f, 60, true, owner);
+      const b = boss();
+      if (b && Math.abs(b.x() - px()) < 34) hitBoss(b, 60, owner);
+      enemyShots.set(enemyShots().filter((sh) => Math.abs(sh.x() - px()) >= 26));
     } else if (p.kind === "sakura") {
       for (const f of [...foes()]) {
-        hitFoe(f, 18, true, p.id);
+        hitFoe(f, 18, true, owner);
         f.slowUntil = tick + 2 * TPS;
       }
-      fx(cx, cy, "PETALFALL", "evolve");
+      const b = boss();
+      if (b) hitBoss(b, 18, owner);
+      enemyShots.set([]);
+    } else if (p.kind === "lantern") {
+      p.hp.set(plantMaxHp(p));
+      shieldTicks = 2 * TPS;
+    } else {
+      for (const r of roster) if (alive(r)) grantGlow(r, 80);
     }
     toast(`SPELL CARD: ${def.spell.name}`);
     p.spellCdTicks = def.spell.cooldown * TPS;
   }
 
-  // Spells are free by design; the hook stays for future costed cards.
-  function lumenSpellBlocked(_p: PlantInst): boolean {
-    return false;
-  }
+  // -- ticks -------------------------------------------------------------------
 
-  // -- player actions (applied on the last tick of a frame) -----------------------
-
-  function actPlantOrFeed(): void {
-    const row = cursorRow();
-    const col = cursorCol();
-    const existing = plantAt(row, col);
-    if (existing) {
-      const def = PLANTS[existing.kind];
-      if (existing.stage() >= 3) {
-        toast(`${def.name} IS FULLY GROWN`);
-        return;
-      }
-      if (lumen() < FEED_COST) {
-        toast("NOT ENOUGH LUMEN TO FEED");
-        return;
-      }
-      lumen.set(lumen() - FEED_COST);
-      grantGlow(existing, FEED_GLOW);
-      fx(cellCX(col), BOARD.y0 + row * BOARD.cellH + 4, "FED +GLOW", "lumen");
-      return;
-    }
-    const kind = PLANT_ORDER[seedIdx()];
-    const def = PLANTS[kind];
-    if (lumen() < def.cost) {
-      toast(`NEED ${def.cost} LUMEN FOR ${def.name}`);
-      return;
-    }
-    lumen.set(lumen() - def.cost);
-    plants.set([
-      ...plants(),
-      {
-        id: ++idSeq,
-        kind,
-        row,
-        col,
-        stage: cell(1),
-        hp: cell(def.hp[0]),
-        glow: cell(0),
-        spellReady: cell(1),
-        cdTicks: Math.round((def.period?.[0] ?? 1) * TPS * 0.5),
-        spellCdTicks: 0,
-      },
-    ]);
-  }
-
-  function actPossess(): void {
-    const target = plantAt(cursorRow(), cursorCol());
-    if (!target) return;
-    if (possessedId() === target.id) {
-      possessedId.set(null);
-      toast("RELEASED");
-      return;
-    }
-    possessedId.set(target.id);
-    toast(`POSSESSED: ${PLANTS[target.kind].name}`);
-  }
-
-  function actCycle(delta: number): void {
-    const list = roster();
-    if (list.length === 0) return;
-    const cur = possessed();
-    let idx = cur ? list.findIndex((p) => p.id === cur.id) : -1;
-    idx = idx < 0 ? (delta > 0 ? 0 : list.length - 1) : (idx + delta + list.length) % list.length;
-    const next = list[idx];
-    possessedId.set(next.id);
-    cursorRow.set(next.row);
-    cursorCol.set(next.col);
-    toast(`POSSESSED: ${PLANTS[next.kind].name}`);
-  }
-
-  function moveCursor(dr: number, dc: number): void {
-    cursorRow.set(Math.max(0, Math.min(BOARD.rows - 1, cursorRow() + dr)));
-    cursorCol.set(Math.max(0, Math.min(BOARD.cols - 1, cursorCol() + dc)));
-  }
-
-  // -- the tick ---------------------------------------------------------------------
-
-  function applyEdges(pressed: number): void {
-    if (pressed & BTN.SQUARE) seedIdx.set((seedIdx() + 1) % PLANT_ORDER.length);
-    if (pressed & BTN.CROSS) actPlantOrFeed();
-    if (pressed & BTN.CIRCLE) actPossess();
-    if (pressed & BTN.LTRIGGER) actCycle(-1);
-    if (pressed & BTN.RTRIGGER) actCycle(1);
-    if (pressed & BTN.TRIANGLE) {
-      const p = possessed();
-      if (p) castSpell(p);
-      else toast("POSSESS A PLANT FIRST (O)");
-    }
-  }
-
-  function tickCursor(pressed: number, held: number, sustained: number): void {
-    for (let d = 0; d < DIRS.length; d++) {
-      const dir = DIRS[d];
-      if (held & dir.mask) {
-        dirHeld[d]++;
-        if (pressed & dir.mask) moveCursor(dir.dr, dir.dc);
-        else if (
-          sustained & dir.mask &&
-          dirHeld[d] >= REPEAT_DELAY &&
-          (dirHeld[d] - REPEAT_DELAY) % REPEAT_EVERY === 0
-        ) {
-          moveCursor(dir.dr, dir.dc);
-        }
-      } else {
-        dirHeld[d] = 0;
-      }
-    }
-  }
-
-  function tickWaves(): void {
+  function tickWavesAndBosses(): void {
     while (nextPhase < PHASES.length && tick >= PHASES[nextPhase].at * TPS) {
       const p = PHASES[nextPhase];
       phase.set(p.id);
@@ -537,185 +665,359 @@ export function createNightbloom(): Nightbloom {
       nextPhase++;
     }
     while (nextWave < WAVES.length && tick >= WAVES[nextWave].at * TPS) {
-      const wave = WAVES[nextWave];
-      const stage: number = PHASES[Math.max(0, nextPhase - 1)].foeStage;
-      wave.spawn.forEach((kind, i) => {
-        const def = FOES[kind];
-        foes.set([
-          ...foes(),
-          {
-            id: ++idSeq,
-            kind,
-            row: rnd(BOARD.rows),
-            stage: cell(stage),
-            x: cell(SPAWN_X + i * 14),
-            hp: cell(def.hp[stage - 1]),
-            slowUntil: 0,
-            biteCd: 0,
-            lobCd: Math.round((def.lobPeriod?.[stage - 1] ?? 1) * TPS * 0.6),
-          },
-        ]);
-      });
+      const stage = PHASES[Math.max(0, nextPhase - 1)].foeStage;
+      for (const kind of WAVES[nextWave].spawn) spawnFoe(kind, stage);
       waveIdx.set(nextWave + 1);
       nextWave++;
     }
+    if (!midbossDone && !boss() && tick >= MIDBOSS_AT * TPS) spawnBoss(MIDBOSS, true);
+    if (midbossDone && !bossDone && !boss() && tick >= BOSS_AT * TPS) spawnBoss(BOSS, false);
   }
 
-  function tickPlants(channeling: boolean): void {
-    const chan = possessedId();
-    for (const p of [...plants()]) {
-      const def = PLANTS[p.kind];
-      // spell cooldown + HUD arc
-      if (p.spellCdTicks > 0) p.spellCdTicks--;
-      const cdMax = def.spell.cooldown * TPS;
-      p.spellReady.set(1 - p.spellCdTicks / cdMax);
-      if (!def.period) continue;
-      // fire/pulse cadence — possession and the channel speed the cycle up
-      let period = def.period[p.stage() - 1] * TPS;
-      if (chan === p.id) period *= channeling ? CHANNEL_RATE : POSSESS_RATE;
-      p.cdTicks--;
-      if (p.cdTicks > 0) continue;
-      if (def.role === "producer") {
-        const gain = def.pulseLumen![p.stage() - 1];
-        lumen.set(lumen() + gain);
-        grantGlow(p, gain);
-        fx(cellCX(p.col), BOARD.y0 + p.row * BOARD.cellH + 4, `+${gain}`, "lumen");
-        p.cdTicks = Math.round(period);
-      } else if (def.role === "shooter") {
-        const spread = def.spreadLanes ? def.spreadLanes[p.stage() - 1] : 0;
-        const rows = lanesOf(p, spread);
-        if (rows.some((r) => foesAhead(r, cellCX(p.col)))) {
-          const dmg = def.dmg![p.stage() - 1];
-          for (const r of rows) fireShot(p, r, p.kind === "catnip" ? "orb" : "bolt", dmg, false);
-          p.cdTicks = Math.round(period);
+  // Held verbs (movement, fire, focus) read the RAW held mask: a hold
+  // event's level track goes true at the same battle tick at every rate, so
+  // hold-driven tapes subsample exactly. (A one-frame PULSE of these buttons
+  // is NOT rate-portable — it holds for a whole batch at low rates — which
+  // is why the tape discipline steers the ship with holds only.)
+  function tickPlayer(held: number): void {
+    const p = active();
+    const def = PLANTS[p.kind];
+    const focusing = Boolean(held & BTN.SQUARE);
+    focus.set(focusing);
+    const speed = (def.speed / TPS) * (focusing ? FOCUS_RATE : 1);
+    let dx = 0;
+    let dy = 0;
+    if (held & BTN.LEFT) dx -= 1;
+    if (held & BTN.RIGHT) dx += 1;
+    if (held & BTN.UP) dy -= 1;
+    if (held & BTN.DOWN) dy += 1;
+    if (dx !== 0 && dy !== 0) {
+      dx *= 0.7071;
+      dy *= 0.7071;
+    }
+    px.set(Math.max(FIELD.x0 + PLAYER_INSET, Math.min(FIELD.x0 + FIELD.w - PLAYER_INSET, px() + dx * speed)));
+    py.set(Math.max(FIELD.y0 + PLAYER_INSET, Math.min(FIELD.y0 + FIELD.h - PLAYER_INSET, py() + dy * speed)));
+
+    if (fireCd > 0) fireCd--;
+    if (held & BTN.CROSS && fireCd <= 0) fireVolley();
+
+    if (switchCd > 0) switchCd--;
+    if (invulnTicks > 0) invulnTicks--;
+    if (shieldTicks > 0) shieldTicks--;
+    invulnOn.set(invulnTicks > 0);
+    shieldOn.set(shieldTicks > 0);
+
+    for (const r of roster) {
+      if (r.spellCdTicks > 0) r.spellCdTicks--;
+      r.spellReady.set(1 - r.spellCdTicks / (PLANTS[r.kind].spell.cooldown * TPS));
+    }
+  }
+
+  function tickFoes(): void {
+    const hasUta = foes().some((f) => f.kind === "uta");
+    for (const f of [...foes()]) {
+      if (!foes().some((x) => x.id === f.id)) continue;
+      const def = FOES[f.kind];
+      const s = f.stage - 1;
+      const slowed = tick < f.slowUntil;
+      const rate = slowed ? 0.6 : 1;
+      const spd = (def.speed[s] / TPS) * rate;
+      if (f.kind === "usagi") {
+        f.x.set(f.x() + f.vx * spd);
+        f.y.set(f.y() + spd * 0.35);
+        if (f.x() < FIELD.x0 + 14) f.vx = 1;
+        if (f.x() > FIELD.x0 + FIELD.w - 14) f.vx = -1;
+      } else if (f.kind === "wisp" || f.kind === "uta") {
+        if (f.y() < f.hoverY) {
+          f.y.set(f.y() + spd);
+        } else if (f.station > 0) {
+          f.station--;
+          f.x.set(f.x() + f.vx * spd * 0.5);
         } else {
-          p.cdTicks = 1; // re-check next tick without drifting the cadence
+          f.y.set(f.y() + spd * 1.4); // the song moves on
         }
-      } else if (def.role === "burst") {
-        const r = def.radius![p.stage() - 1];
-        const cx = cellCX(p.col);
-        const reach = (r + 0.5) * BOARD.cellW;
-        const targets = foes().filter((f) => Math.abs(f.row - p.row) <= r && Math.abs(f.x() - cx) <= reach);
-        if (targets.length > 0) {
-          const dmg = def.dmg![p.stage() - 1];
-          for (const f of targets) {
-            hitFoe(f, dmg, true, p.id);
-            if (p.stage() >= 3 && def.slowFactor) f.slowUntil = tick + Math.round(1.5 * TPS);
+        if (f.x() < FIELD.x0 + 14) f.vx = 1;
+        if (f.x() > FIELD.x0 + FIELD.w - 14) f.vx = -1;
+      } else {
+        f.y.set(f.y() + spd);
+      }
+      if (f.y() > FIELD.y0 + FIELD.h + 18) {
+        foes.set(foes().filter((x) => x.id !== f.id)); // it drifts past the garden
+        continue;
+      }
+      // fire
+      f.fireCd -= hasUta && f.kind !== "uta" ? 1 / UTA_HASTE : 1;
+      if (f.fireCd <= 0 && f.y() > FIELD.y0 + 6) {
+        f.fireCd = Math.round(def.firePeriod[s] * TPS * (slowed ? 1.6 : 1));
+        const dmg = BULLET_DMG[s];
+        const shotSpeed = def.shotSpeed[s];
+        if (f.kind === "wisp") {
+          const n = f.stage;
+          for (let i = 0; i < n; i++) {
+            const v = aimedAt(f.x(), f.y(), shotSpeed);
+            const a = (i - (n - 1) / 2) * 3;
+            enemyFire(
+              f.x(), f.y() + 8,
+              v.vx * cosA(a) - v.vy * sinA(a),
+              v.vx * sinA(a) + v.vy * cosA(a),
+              "cyan", dmg,
+            );
           }
-          fx(cx, BOARD.y0 + p.row * BOARD.cellH + 4, "BLOOM", "evolve");
-          p.cdTicks = Math.round(period);
+        } else if (f.kind === "kasa") {
+          const n = 3 + f.stage * 2;
+          for (let i = 0; i < n; i++) {
+            const a = A_DOWN + (i - (n - 1) / 2) * 4;
+            enemyFire(f.x(), f.y() + 8, cosA(a) * shotSpeed, sinA(a) * shotSpeed, "amber", dmg);
+          }
+        } else if (f.kind === "usagi") {
+          const v = aimedAt(f.x(), f.y(), shotSpeed);
+          enemyFire(f.x(), f.y() + 8, v.vx, v.vy, "mochi", dmg);
         } else {
-          p.cdTicks = 1;
+          const n = 6 + f.stage * 2;
+          for (let i = 0; i < n; i++) {
+            const a = Math.round((i * 64) / n) + ((tick >> 4) % 64);
+            enemyFire(f.x(), f.y(), cosA(a) * shotSpeed, sinA(a) * shotSpeed, "pink", dmg);
+          }
+        }
+      }
+    }
+  }
+
+  function tickBoss(): void {
+    const b = boss();
+    if (!b) return;
+    const idx = b.phase();
+    // sway on the quantized sine
+    b.x.set(FIELD.x0 + FIELD.w / 2 + sinA(Math.floor((tick - b.born) / 24) % 64) * (FIELD.w * 0.26));
+    if (b.y() < FIELD.y0 + 46) b.y.set(b.y() + 0.8);
+    b.timeoutTicks--;
+    bossCardSeconds.set(Math.max(0, Math.ceil(b.timeoutTicks / TPS)));
+    if (b.timeoutTicks <= 0) {
+      advanceBoss(b, false);
+      return;
+    }
+    const speed = b.mid ? 66 : 58 + idx * 8;
+    const dmg = BULLET_DMG[2];
+    b.fireCd--;
+    b.fireCd2--;
+    if (b.mid) {
+      // UMBRELLA SIGN: alternating spreads + a slow ring
+      if (b.fireCd <= 0) {
+        b.fireCd = Math.round(1.1 * TPS);
+        for (let i = 0; i < 9; i++) {
+          const a = A_DOWN + (i - 4) * 3;
+          enemyFire(b.x(), b.y() + 12, cosA(a) * speed, sinA(a) * speed, "amber", dmg);
+        }
+      }
+      if (b.fireCd2 <= 0) {
+        b.fireCd2 = Math.round(2.6 * TPS);
+        for (let i = 0; i < 12; i++) {
+          const a = Math.round((i * 64) / 12) + ((tick >> 5) % 64);
+          enemyFire(b.x(), b.y(), cosA(a) * 46, sinA(a) * 46, "pink", dmg);
+        }
+      }
+      return;
+    }
+    if (idx === 0) {
+      // NIGHT SONG: rotating rings + aimed triples
+      if (b.fireCd <= 0) {
+        b.fireCd = Math.round(1.2 * TPS);
+        b.spiral += 3;
+        for (let i = 0; i < 12; i++) {
+          const a = Math.round((i * 64) / 12) + b.spiral;
+          enemyFire(b.x(), b.y(), cosA(a) * speed, sinA(a) * speed, "pink", dmg);
+        }
+      }
+      if (b.fireCd2 <= 0) {
+        b.fireCd2 = Math.round(1.7 * TPS);
+        for (let i = -1; i <= 1; i++) {
+          const v = aimedAt(b.x(), b.y(), speed + 16);
+          enemyFire(
+            b.x(), b.y() + 10,
+            v.vx * cosA(i * 3) - v.vy * sinA(i * 3),
+            v.vx * sinA(i * 3) + v.vy * cosA(i * 3),
+            "cyan", dmg,
+          );
+        }
+      }
+    } else if (idx === 1) {
+      // MOONFALL CANTATA: a spiral stream + aimed mochi pairs
+      if (b.fireCd <= 0) {
+        b.fireCd = 7;
+        b.spiral += 5;
+        enemyFire(b.x(), b.y(), cosA(b.spiral) * speed, sinA(b.spiral) * speed, "pink", dmg);
+        enemyFire(b.x(), b.y(), cosA(b.spiral + 32) * speed, sinA(b.spiral + 32) * speed, "pink", dmg);
+      }
+      if (b.fireCd2 <= 0) {
+        b.fireCd2 = Math.round(1.8 * TPS);
+        const v = aimedAt(b.x(), b.y(), speed + 30);
+        enemyFire(b.x() - 10, b.y() + 8, v.vx, v.vy, "mochi", dmg);
+        enemyFire(b.x() + 10, b.y() + 8, v.vx, v.vy, "mochi", dmg);
+      }
+    } else {
+      // THE ETERNAL NIGHT: twin counter-spirals + slow rings
+      if (b.fireCd <= 0) {
+        b.fireCd = 6;
+        b.spiral += 3;
+        enemyFire(b.x(), b.y(), cosA(b.spiral) * 52, sinA(b.spiral) * 52, "pink", dmg);
+        enemyFire(b.x(), b.y(), cosA(-b.spiral) * 52, sinA(-b.spiral) * 52, "cyan", dmg);
+      }
+      if (b.fireCd2 <= 0) {
+        b.fireCd2 = Math.round(4 * TPS);
+        for (let i = 0; i < 16; i++) {
+          const a = Math.round((i * 64) / 16) + ((tick >> 5) % 64);
+          enemyFire(b.x(), b.y(), cosA(a) * 42, sinA(a) * 42, "amber", dmg);
         }
       }
     }
   }
 
   function tickShots(): void {
-    for (const s of [...shots()]) {
-      const speed = SHOTS[s.kind].speed / TPS;
-      s.x.set(s.x() + speed);
-      if (s.x() < BOARD.x0 - 20 || s.x() > SPAWN_X + 30) {
-        shots.set(shots().filter((x) => x.id !== s.id));
+    // player shots
+    for (const sh of [...playerShots()]) {
+      if (sh.homing) {
+        // steer toward the nearest target (quantized lerp, then renormalize)
+        let tx = 0;
+        let ty = 0;
+        let best = Infinity;
+        for (const f of foes()) {
+          const dx = f.x() - sh.x();
+          const dy = f.y() - sh.y();
+          const d = dx * dx + dy * dy;
+          if (d < best) {
+            best = d;
+            tx = f.x();
+            ty = f.y();
+          }
+        }
+        const b = boss();
+        if (b) {
+          const dx = b.x() - sh.x();
+          const dy = b.y() - sh.y();
+          const d = dx * dx + dy * dy;
+          if (d < best) {
+            best = d;
+            tx = b.x();
+            ty = b.y();
+          }
+        }
+        if (best < Infinity) {
+          const cur = Math.sqrt(sh.vx * sh.vx + sh.vy * sh.vy) || 1;
+          const dx = tx - sh.x();
+          const dy = ty - sh.y();
+          const dl = Math.sqrt(dx * dx + dy * dy) || 1;
+          const nvx = sh.vx * 0.88 + (dx / dl) * cur * 0.12;
+          const nvy = sh.vy * 0.88 + (dy / dl) * cur * 0.12;
+          const nl = Math.sqrt(nvx * nvx + nvy * nvy) || 1;
+          sh.vx = (nvx / nl) * cur;
+          sh.vy = (nvy / nl) * cur;
+        }
+      }
+      sh.x.set(sh.x() + sh.vx / TPS);
+      sh.y.set(sh.y() + sh.vy / TPS);
+      if (
+        sh.y() < FIELD.y0 - 16 || sh.y() > FIELD.y0 + FIELD.h + 16 ||
+        sh.x() < FIELD.x0 - 16 || sh.x() > FIELD.x0 + FIELD.w + 16
+      ) {
+        playerShots.set(playerShots().filter((x) => x.id !== sh.id));
         continue;
       }
-      if (speed > 0) {
-        // friendly shot: hit the nearest foe it has reached in this lane
-        const target = foes()
-          .filter((f) => f.row === s.row && s.x() >= f.x() - 12 && s.x() <= f.x() + 22)
-          .sort((a, b) => a.x() - b.x())[0];
-        if (target) {
-          shots.set(shots().filter((x) => x.id !== s.id));
-          hitFoe(target, s.dmg, s.pierce, s.owner);
+      // hit foes
+      let spent = false;
+      for (const f of [...foes()]) {
+        const dx = f.x() - sh.x();
+        const dy = f.y() - sh.y();
+        if (dx * dx + dy * dy <= 13 * 13) {
+          hitFoe(f, sh.dmg, sh.pierce, sh.owner);
+          if (sh.through > 0) {
+            sh.through--;
+          } else {
+            spent = true;
+            break;
+          }
         }
+      }
+      if (!spent) {
+        const b = boss();
+        if (b) {
+          const dx = b.x() - sh.x();
+          const dy = b.y() - sh.y();
+          if (dx * dx + dy * dy <= 22 * 22) {
+            hitBoss(b, sh.pierce ? sh.dmg : sh.dmg, sh.owner);
+            spent = true;
+          }
+        }
+      }
+      if (spent) playerShots.set(playerShots().filter((x) => x.id !== sh.id));
+    }
+
+    // enemy shots
+    for (const sh of [...enemyShots()]) {
+      sh.x.set(sh.x() + sh.vx / TPS);
+      sh.y.set(sh.y() + sh.vy / TPS);
+      if (
+        sh.y() > FIELD.y0 + FIELD.h + 12 || sh.y() < FIELD.y0 - 12 ||
+        sh.x() < FIELD.x0 - 12 || sh.x() > FIELD.x0 + FIELD.w + 12
+      ) {
+        enemyShots.set(enemyShots().filter((x) => x.id !== sh.id));
+        continue;
+      }
+      const dx = sh.x() - px();
+      const dy = sh.y() - py();
+      const d2 = dx * dx + dy * dy;
+      const hitR = HIT_R + 3;
+      if (d2 <= hitR * hitR) {
+        enemyShots.set(enemyShots().filter((x) => x.id !== sh.id));
+        hurtPlayer(sh.dmg);
+      } else if (!sh.grazed && d2 <= GRAZE_R * GRAZE_R && invulnTicks <= 0) {
+        sh.grazed = true;
+        graze.set(graze() + 1);
+        score.set(score() + 10);
+        grantGlow(active(), GRAZE_GLOW);
+      }
+    }
+
+    // body rams
+    for (const f of foes()) {
+      const dx = f.x() - px();
+      const dy = f.y() - py();
+      if (dx * dx + dy * dy <= 14 * 14) hurtPlayer(RAM_DMG);
+    }
+
+    // motes
+    for (const m of [...motes()]) {
+      if (py() < POC_Y || Math.abs(m.x() - px()) + Math.abs(m.y() - py()) < 34) {
+        // magnet: above the PoC line, or close by
+        const dx = px() - m.x();
+        const dy = py() - m.y();
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        m.x.set(m.x() + (dx / len) * (220 / TPS));
+        m.y.set(m.y() + (dy / len) * (220 / TPS));
       } else {
-        // mochi: hit the first plant it passes over
-        const target = plants()
-          .filter((p) => p.row === s.row && Math.abs(cellCX(p.col) - s.x()) < 12)
-          .sort((a, b) => b.col - a.col)[0];
-        if (target) {
-          shots.set(shots().filter((x) => x.id !== s.id));
-          damagePlant(target, s.dmg, undefined);
-        }
+        m.y.set(m.y() + 44 / TPS);
+      }
+      if (m.y() > FIELD.y0 + FIELD.h + 10) {
+        motes.set(motes().filter((x) => x.id !== m.id));
+        continue;
+      }
+      const dx = m.x() - px();
+      const dy = m.y() - py();
+      if (dx * dx + dy * dy <= 12 * 12) {
+        motes.set(motes().filter((x) => x.id !== m.id));
+        const p = active();
+        const worth = p.kind === "primrose" ? MOTE_GLOW * 2 : MOTE_GLOW;
+        grantGlow(p, worth);
+        score.set(score() + 5);
       }
     }
   }
 
-  function damagePlant(p: PlantInst, dmg: number, eater?: FoeInst): void {
-    const def = PLANTS[p.kind];
-    p.hp.set(p.hp() - dmg);
-    if (def.law === "GROWS BY THE BLOWS IT ENDURES") grantGlow(p, dmg);
-    if (p.hp() <= 0) killPlant(p, eater);
-  }
-
-  function tickFoes(): void {
-    const all = foes();
-    for (const f of [...all]) {
-      if (!foes().includes(f)) continue; // already vaporized this tick
-      const def = FOES[f.kind];
-      const stage = f.stage() - 1;
-      // uta's song: same-lane allies within range are hastened
-      let speed = def.speed[stage] / TPS;
-      const hasted = all.some((u) => {
-        if (u.id === f.id || u.row !== f.row) return false;
-        const uDef = FOES[u.kind];
-        if (!uDef.auraRange) return false;
-        return Math.abs(u.x() - f.x()) <= uDef.auraRange[u.stage() - 1];
-      });
-      if (hasted) speed *= FOES.uta.hasteFactor!;
-      if (tick < f.slowUntil) speed *= PLANTS.sakura.slowFactor!;
-
-      // the plant directly ahead (largest cx <= just past the foe)
-      const lane = plants().filter((p) => p.row === f.row && cellCX(p.col) <= f.x() + BITE_REACH);
-      const front = lane.sort((a, b) => b.col - a.col)[0];
-      const dist = front ? f.x() - cellCX(front.col) : Infinity;
-
-      if (front && dist <= BITE_REACH) {
-        // latched on: bite
-        f.biteCd--;
-        if (f.biteCd <= 0) {
-          f.biteCd = BITE_TICKS;
-          damagePlant(front, def.bite[stage], f);
-          const thorns = PLANTS[front.kind].thorns?.[front.stage() - 1] ?? 0;
-          if (thorns > 0 && foes().includes(f)) hitFoe(f, thorns, true, front.id);
-        }
-        continue;
-      }
-
-      // moon rabbits stop short and lob mochi at the front plant
-      if (def.lobRange && front && dist <= def.lobRange * BOARD.cellW) {
-        f.lobCd--;
-        if (f.lobCd <= 0) {
-          f.lobCd = Math.round(def.lobPeriod![stage] * TPS);
-          shots.set([
-            ...shots(),
-            { id: ++idSeq, kind: "mochi", row: f.row, x: cell(f.x() - 10), dmg: def.lobDmg![stage], pierce: false },
-          ]);
-        }
-        continue;
-      }
-
-      f.x.set(f.x() - speed);
-      if (f.x() < BREACH_X) {
-        if (wards() > 0) {
-          wards.set(wards() - 1);
-          fx(BOARD.x0 + 6, BOARD.y0 + f.row * BOARD.cellH + 4, "WARD!", "ward");
-          toast("A WARD FLARES AND SPENDS ITSELF");
-          foes.set(foes().filter((x) => x.id !== f.id));
-        } else {
-          outcome.set("eternal");
-          return;
-        }
-      }
+  function stepTick(pressed: number, held: number): void {
+    if (pressed) {
+      if (pressed & BTN.CIRCLE || pressed & BTN.RTRIGGER) switchTo(1);
+      if (pressed & BTN.LTRIGGER) switchTo(-1);
+      if (pressed & BTN.TRIANGLE) castSpell();
     }
-  }
-
-  function stepTick(pressed: number, held: number, sustained: number): void {
-    // player intent lands first, then the world advances one fixed step
-    if (pressed) applyEdges(pressed);
-    tickCursor(pressed, held, sustained);
-    chanTicks = held & BTN.CIRCLE ? chanTicks + 1 : 0;
-    const channeling = Boolean(sustained & BTN.CIRCLE) && chanTicks >= CHANNEL_DELAY;
     tick++;
     second.set(Math.floor(tick / TPS));
     fxTick.set(tick);
@@ -723,30 +1025,17 @@ export function createNightbloom(): Nightbloom {
       const cutoff = tick - FX_LIFE;
       if (fxs().some((f) => f.born <= cutoff)) fxs.set(fxs().filter((f) => f.born > cutoff));
     }
-    tickWaves();
-    if (tick % (MOONFALL_PERIOD * TPS) === 0) {
-      lumen.set(lumen() + MOONFALL_LUMEN);
-      fx(BOARD.x0 + rnd(BOARD.cols) * BOARD.cellW + 18, BOARD.y0 - 6, `+${MOONFALL_LUMEN}`, "lumen");
-    }
-    tickPlants(channeling);
-    tickShots();
+    tickWavesAndBosses();
+    tickPlayer(held);
     tickFoes();
-    if (outcome() !== "battle") return;
-    if (tick >= DAWN_AT * TPS && nextWave >= WAVES.length && foes().length === 0) {
-      outcome.set("dawn");
-    }
+    tickBoss();
+    tickShots();
   }
 
-  // -- frame routing -----------------------------------------------------------------
-
   // Frame-boundary rule (the subsampling contract): a battle frame either
-  // runs its FULL ticksPerFrame() batch or none of it. The frame that starts
-  // the night ticks immediately, a pause begins with a 0-tick frame, and an
-  // unpause frame runs its whole batch — so the tick count at any shared
-  // virtual second is (t - tStart) * 60 at every rate, never off by a batch.
+  // runs its FULL ticksPerFrame() batch or none of it — see the header.
   function frame(buttons: number): void {
     const pressed = buttons & ~prevButtons;
-    const sustained = buttons & prevButtons;
     prevButtons = buttons;
 
     const o = outcome();
@@ -767,10 +1056,7 @@ export function createNightbloom(): Nightbloom {
     const k = ticksPerFrame();
     for (let i = 0; i < k; i++) {
       if (outcome() !== "battle") return;
-      // Edges apply on the FIRST tick of the frame's batch: with batches
-      // aligned to (t - tStart) * 60, that is tick (P - tStart) * 60 + 1 for
-      // a press at second P — the same tick at every simulationHz.
-      stepTick(i === 0 ? pressed : 0, buttons, sustained);
+      stepTick(i === 0 ? pressed : 0, buttons);
     }
   }
 
@@ -778,47 +1064,57 @@ export function createNightbloom(): Nightbloom {
   // can assert on the battle without parsing the component tree.
   (globalThis as Record<string, unknown>).__nightbloom = {
     outcome,
-    lumen,
-    wards,
+    second,
+    score,
+    graze,
     kills,
     phase,
-    second,
     waveIdx,
     bestStage,
+    activeKind: () => active().kind,
+    activeHp: () => active().hp(),
+    rosterAlive: () => roster.filter(alive).length,
+    rosterGlow: () => roster.map((r) => ({ kind: r.kind, stage: r.stage(), hp: r.hp(), glow: Math.round(r.glow()) })),
     foesAlive: () => foes().length,
-    foeList: () => foes().map((f) => ({ kind: f.kind, row: f.row, x: Math.round(f.x()), stage: f.stage(), hp: f.hp() })),
-    plantCount: () => plants().length,
-    plantList: () =>
-      plants().map((p) => ({ kind: p.kind, row: p.row, col: p.col, stage: p.stage(), hp: p.hp(), glow: p.glow() })),
-    possessedKind: () => {
-      const p = possessed();
-      return p ? p.kind : null;
+    bulletCount: () => enemyShots().length,
+    bossInfo: () => {
+      const b = boss();
+      return b ? { name: b.def.name, phase: b.phase(), hp: b.hp() } : null;
     },
+    playerPos: () => ({ x: Math.round(px()), y: Math.round(py()) }),
   };
 
   return {
     outcome,
     paused,
     codex,
-    lumen,
-    wards,
-    kills,
     phase,
     augury,
-    progress: () => Math.min(1, second() / DAWN_AT),
     second,
     waveIdx,
-    cursorRow,
-    cursorCol,
-    seed: () => PLANT_ORDER[seedIdx()],
-    possessed,
-    plants,
+    score,
+    graze,
+    kills,
+    bestStage,
+    px,
+    py,
+    focus,
+    invuln: invulnOn,
+    shield: shieldOn,
+    activeIdx,
+    roster,
+    active,
     foes,
-    shots,
+    boss,
+    bossCard,
+    bossCardSeconds,
+    enemyShots,
+    playerShots,
+    motes,
     fxs,
     fxTick,
     toasts,
-    bestStage,
+    beam,
     frame,
     start,
     toTitle,
