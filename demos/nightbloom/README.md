@@ -47,16 +47,22 @@ awake, and the night takes the run.
 
 ## The roster — three forms, three answers
 
-| form | wakes | shot | the trade |
+| form | wakes | shot | the ability |
 | --- | --- | --- | --- |
-| CATNIP KIT | at dusk | homing orbs | a black-and-gold moon cat, a white moon waxing on its brow as it ascends; never misses, hits soft |
-| SAKURA SENTINEL | first ascension | petal fan | true damage — the KASA RONIN's armor means nothing |
-| MOON PRIMROSE | the midboss's fall | thin twin streams | a hulking gorilla with carved abs and the sweetest little face; motes are worth double glow to him |
+| CATNIP KIT | at dusk | homing orbs | a black-and-gold moon cat, a white moon waxing on its brow; **dances with death** — wider graze ring, double graze glow |
+| SAKURA SENTINEL | first ascension | petal fan, true damage | **the healer** — every damaging petal mends the most wounded waking form by 1, at the price of soft hits |
+| MOON PRIMROSE | the midboss's fall | **spinning bananas**, thrown hard | a hulking gorilla with carved abs and the sweetest little face; heavy slow volleys, and motes are worth double glow to him |
 
 Spell cards double as bullet clears: NINE LIVES (homing burst), PETALFALL
 (clear every shot on the field), MOONRISE (+100 glow to the whole waking
 roster). Bamboo and the stone lantern remain in the tables as reserve
 content.
+
+The avatar is alive, not a decal: it breathes on a tick-driven bob, leans
+into its strafe, and **grows with its stage** — 22 px, 27 px, 32 px, each
+stage its own portrait, pokemon-style (the hitbox never grows; what you
+dodge with is always the little white dot). When a `?` card wakes, a
+rainbow comet sweeps it left to right.
 
 **Two evolution laws.** Forms grow by their own work — glow comes from the
 damage the piloted form deals, the motes it gathers (auto-collected above

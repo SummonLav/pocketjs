@@ -27,6 +27,7 @@ import { For, Show } from "solid-js";
 import { Image, Screen, Text, View } from "@pocketjs/framework/components";
 import { onFrame } from "@pocketjs/framework/lifecycle";
 import {
+  AVATAR_SIZE,
   FIELD,
   FOES,
   FOE_ORDER,
@@ -137,19 +138,36 @@ function PlayerNode(props: { game: Nightbloom }) {
     const p = g.active();
     return PLANTS[p.kind].sprites[p.stage() - 1];
   };
+  /** Pokemon manners: the avatar grows with its stage (the hitbox does not). */
+  const size = () => AVATAR_SIZE[g.active().stage() - 1];
   const blink = () => (g.invuln() ? ((g.fxTick() >> 2) & 1) === 0 : true);
+  /** Idle breath: a 1.2 s triangle-wave bob, a pure function of the tick. */
+  const bob = () => {
+    const ph = (g.fxTick() % 72) / 72;
+    return (ph < 0.5 ? ph : 1 - ph) * 4 - 1;
+  };
+  /** Lean into the strafe, danmaku-style. */
+  const lean = () => g.lastDx() * 9;
   return (
     <View
       debugName="Player"
       class="absolute items-center justify-center"
-      style={{ insetL: g.px() - FIELD.x0 - 13, insetT: g.py() - FIELD.y0 - 13, width: 26, height: 26, opacity: blink() ? 1 : 0.35 }}
+      style={{
+        insetL: g.px() - FIELD.x0 - size() / 2,
+        insetT: g.py() - FIELD.y0 - size() / 2,
+        width: size(),
+        height: size(),
+        translateY: bob(),
+        rotate: lean(),
+        opacity: blink() ? 1 : 0.35,
+      }}
     >
-      <Image class="w-[26] h-[26]" src={sprite()} />
+      <Image class="w-full h-full" src={sprite()} />
       <Show when={g.shield()}>
         <View class="absolute w-[26] h-[26] rounded-full border-2 border-amber-300" />
       </Show>
       <Show when={g.focus()}>
-        <View class="absolute w-1 h-1 rounded-full bg-white" style={{ insetL: 11, insetT: 11 }} />
+        <View class="absolute w-1 h-1 rounded-full bg-white" style={{ insetL: size() / 2 - 2, insetT: size() / 2 - 2 }} />
       </Show>
     </View>
   );
@@ -236,9 +254,19 @@ function PlayerShotNode(props: { game: Nightbloom; shotId: number }) {
       {(s) =>
         s.kind === "petal" ? (
           <View class="absolute w-1 h-2 rounded-full bg-pink-200" style={{ insetL: s.x() - FIELD.x0 - 2, insetT: s.y() - FIELD.y0 - 4 }} />
+        ) : s.kind === "banana" ? (
+          <Image
+            class="absolute w-[14] h-[14]"
+            src="shot-banana.png"
+            style={{
+              insetL: s.x() - FIELD.x0 - 7,
+              insetT: s.y() - FIELD.y0 - 7,
+              rotate: ((g.fxTick() * 9 + s.id * 40) % 360),
+            }}
+          />
         ) : (
           <Image
-            class={s.kind === "heavy" ? "absolute w-[14] h-[14]" : "absolute w-[12] h-[12]"}
+            class="absolute w-[12] h-[12]"
             src={s.kind === "orb" ? SHOTS.orb.sprite : SHOTS.bolt.sprite}
             style={{ insetL: s.x() - FIELD.x0 - 6, insetT: s.y() - FIELD.y0 - 6, rotate: s.kind === "orb" ? 0 : -90 }}
           />
@@ -372,10 +400,17 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
   const isActive = () => g.activeIdx() === props.idx;
   const wilted = () => p.hp() <= 0;
   const cardClass = () => {
-    if (wilted()) return "flex-row items-center gap-1 p-1 rounded-md border border-slate-800 bg-slate-900 opacity-40";
-    if (isActive() && g.wilting()) return "flex-row items-center gap-1 p-1 rounded-md border border-red-400 bg-slate-800";
-    if (isActive()) return "flex-row items-center gap-1 p-1 rounded-md border border-amber-300 bg-slate-800";
-    return "flex-row items-center gap-1 p-1 rounded-md border border-slate-700 bg-slate-900";
+    if (wilted()) return "relative flex-row items-center gap-1 p-1 rounded-md border border-slate-800 bg-slate-900 opacity-40 overflow-hidden";
+    if (isActive() && g.wilting()) return "relative flex-row items-center gap-1 p-1 rounded-md border border-red-400 bg-slate-800 overflow-hidden";
+    if (isActive()) return "relative flex-row items-center gap-1 p-1 rounded-md border border-amber-300 bg-slate-800 overflow-hidden";
+    return "relative flex-row items-center gap-1 p-1 rounded-md border border-slate-700 bg-slate-900 overflow-hidden";
+  };
+  /** 0..1 progress of the rainbow reveal (48 ticks), -1 when not playing. */
+  const reveal = () => {
+    const at = p.unlockedAt();
+    if (at < 0) return -1;
+    const age = g.fxTick() - at;
+    return age >= 0 && age < 48 ? age / 48 : -1;
   };
   return (
     <Show
@@ -393,6 +428,18 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
       }
     >
     <View class={cardClass()}>
+      <Show when={reveal() >= 0}>
+        <View class="absolute inset-0 rounded-md overflow-hidden">
+          <View
+            class="absolute w-[16] bg-gradient-to-r from-pink-400 to-cyan-300 opacity-70"
+            style={{ insetT: 0, height: 34, translateX: -20 + reveal() * 150 }}
+          />
+          <View
+            class="absolute w-[8] bg-gradient-to-r from-amber-300 to-pink-400 opacity-60"
+            style={{ insetT: 0, height: 34, translateX: -34 + reveal() * 150 }}
+          />
+        </View>
+      </Show>
       <Image class="w-[20] h-[20]" src={def.sprites[p.stage() - 1]} />
       <View class="flex-col gap-1 grow">
         <View class="flex-row justify-between items-center">

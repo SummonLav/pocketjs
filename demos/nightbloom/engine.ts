@@ -41,6 +41,8 @@ import {
   BOSS,
   BOSS_AT,
   BOSS_PHASE_BOUNTY,
+  CATNIP_GRAZE_MULT,
+  CATNIP_GRAZE_R,
   FIELD,
   FOCUS_RATE,
   FOES,
@@ -58,6 +60,7 @@ import {
   PLAYER_INSET,
   PLAYER_SPAWN,
   POC_Y,
+  SAKURA_HEAL,
   SWITCH_COOLDOWN,
   TPS,
   UTA_HASTE,
@@ -122,6 +125,9 @@ export interface PlantState {
   spellCdTicks: number;
   /** Locked forms show as ? on the roster until the night wakes them. */
   unlocked: Cell<boolean>;
+  /** Battle tick the form woke on (-1 = from the start) — drives the
+   *  roster card's rainbow reveal sweep. */
+  unlockedAt: Cell<number>;
 }
 
 export interface FoeInst {
@@ -169,7 +175,7 @@ export interface EnemyShot {
   grazed: boolean;
 }
 
-export type PlayerShotKind = "bolt" | "orb" | "petal" | "heavy";
+export type PlayerShotKind = "bolt" | "orb" | "petal" | "banana";
 
 export interface PlayerShot {
   id: number;
@@ -231,6 +237,8 @@ export interface Nightbloom {
   activeIdx: Accessor<number>;
   roster: PlantState[];
   active: () => PlantState;
+  /** -1 | 0 | 1 — the strafe direction, for the avatar's lean. */
+  lastDx: Accessor<number>;
   /** The pilot is dead and the last-breath switch window is open. */
   wilting: Accessor<boolean>;
   wiltSeconds: Accessor<number>;
@@ -302,6 +310,7 @@ export function createNightbloom(): Nightbloom {
     spellReady: cell(1),
     spellCdTicks: 0,
     unlocked: cell(i === 0), // only the catnip answers at dusk
+    unlockedAt: cell(-1),
   }));
 
   let tick = 0;
@@ -321,6 +330,7 @@ export function createNightbloom(): Nightbloom {
   let rescues = 0;
   const wilting = cell(false);
   const wiltSeconds = cell(0);
+  const lastDx = cell(0);
 
   // -- deterministic helpers ------------------------------------------------
 
@@ -354,6 +364,7 @@ export function createNightbloom(): Nightbloom {
     const p = roster.find((r) => r.kind === kind);
     if (!p || p.unlocked()) return;
     p.unlocked.set(true);
+    p.unlockedAt.set(tick);
     toast(line);
     sfx("unlock");
   }
@@ -402,6 +413,7 @@ export function createNightbloom(): Nightbloom {
     rescues = 0;
     wilting.set(false);
     wiltSeconds.set(0);
+    lastDx.set(0);
     roster.forEach((p, i) => {
       p.stage.set(1);
       p.hp.set(PLANTS[p.kind].hp[0]);
@@ -409,6 +421,7 @@ export function createNightbloom(): Nightbloom {
       p.spellReady.set(1);
       p.spellCdTicks = 0;
       p.unlocked.set(i === 0);
+      p.unlockedAt.set(-1);
     });
   }
 
@@ -503,12 +516,32 @@ export function createNightbloom(): Nightbloom {
 
   // -- damage ------------------------------------------------------------------
 
+  /** Sakura's kindness: every damaging petal heals the most wounded waking
+   *  form (self included) — the healer hits soft but keeps the roster alive. */
+  function sakuraMend(owner: number): void {
+    if (roster[owner]?.kind !== "sakura") return;
+    let target: PlantState | null = null;
+    let worst = 1;
+    for (const r of roster) {
+      if (!r.unlocked() || r.hp() <= 0) continue;
+      const frac = r.hp() / PLANTS[r.kind].hp[r.stage() - 1];
+      if (frac < worst) {
+        worst = frac;
+        target = r;
+      }
+    }
+    if (!target) return;
+    target.hp.set(Math.min(PLANTS[target.kind].hp[target.stage() - 1], target.hp() + SAKURA_HEAL));
+    sfx("heal");
+  }
+
   function hitFoe(f: FoeInst, dmg: number, pierce: boolean, owner: number): void {
     if (!foes().some((x) => x.id === f.id)) return;
     const def = FOES[f.kind];
     const eff = pierce ? dmg : Math.max(1, dmg - def.armor[f.stage - 1]);
     f.hp.set(f.hp() - eff);
     sfx("hit");
+    sakuraMend(owner);
     const p = roster[owner];
     if (p) grantGlow(p, eff);
     if (f.hp() <= 0) {
@@ -524,6 +557,7 @@ export function createNightbloom(): Nightbloom {
     if (boss() !== b) return;
     b.hp.set(b.hp() - dmg);
     sfx("hit");
+    sakuraMend(owner);
     const p = roster[owner];
     if (p) grantGlow(p, dmg);
     if (b.hp() <= 0) advanceBoss(b, true);
@@ -649,17 +683,19 @@ export function createNightbloom(): Nightbloom {
         });
       }
     } else if (p.kind === "lantern") {
+      // reserve content — the lantern is not on the pilotable roster
       for (let i = 0; i < streams; i++) {
         add.push({
-          id: ++idSeq, kind: "heavy", x: cell(px() + (i - (streams - 1) / 2) * 12), y: cell(py() - 12),
+          id: ++idSeq, kind: "bolt", x: cell(px() + (i - (streams - 1) / 2) * 12), y: cell(py() - 12),
           vx: 0, vy: -140, dmg: def.dmg[s], pierce: false, through: 0, homing: false, owner,
         });
       }
     } else {
+      // the gorilla: heavy spinning bananas, thrown hard
       for (let i = 0; i < streams; i++) {
         add.push({
-          id: ++idSeq, kind: "bolt", x: cell(px() + (i - (streams - 1) / 2) * 9), y: cell(py() - 10),
-          vx: (i - (streams - 1) / 2) * 12, vy: -205, dmg: def.dmg[s], pierce: false, through: 0, homing: false, owner,
+          id: ++idSeq, kind: "banana", x: cell(px() + (i - (streams - 1) / 2) * 12), y: cell(py() - 12),
+          vx: (i - (streams - 1) / 2) * 16, vy: -175, dmg: def.dmg[s], pierce: false, through: 0, homing: false, owner,
         });
       }
     }
@@ -757,6 +793,7 @@ export function createNightbloom(): Nightbloom {
       dx *= 0.7071;
       dy *= 0.7071;
     }
+    lastDx.set(Math.sign(dx));
     px.set(Math.max(FIELD.x0 + PLAYER_INSET, Math.min(FIELD.x0 + FIELD.w - PLAYER_INSET, px() + dx * speed)));
     py.set(Math.max(FIELD.y0 + PLAYER_INSET, Math.min(FIELD.y0 + FIELD.h - PLAYER_INSET, py() + dy * speed)));
 
@@ -1040,12 +1077,15 @@ export function createNightbloom(): Nightbloom {
       if (d2 <= hitR * hitR) {
         enemyShots.set(enemyShots().filter((x) => x.id !== sh.id));
         hurtPlayer(sh.dmg);
-      } else if (!sh.grazed && d2 <= GRAZE_R * GRAZE_R && invulnTicks <= 0) {
-        sh.grazed = true;
-        graze.set(graze() + 1);
-        score.set(score() + 10);
-        grantGlow(active(), GRAZE_GLOW);
-        sfx("graze");
+      } else {
+        const gr = active().kind === "catnip" ? CATNIP_GRAZE_R : GRAZE_R;
+        if (!sh.grazed && d2 <= gr * gr && invulnTicks <= 0) {
+          sh.grazed = true;
+          graze.set(graze() + 1);
+          score.set(score() + 10);
+          grantGlow(active(), GRAZE_GLOW * (active().kind === "catnip" ? CATNIP_GRAZE_MULT : 1));
+          sfx("graze");
+        }
       }
     }
 
@@ -1181,6 +1221,7 @@ export function createNightbloom(): Nightbloom {
     activeIdx,
     roster,
     active,
+    lastDx,
     wilting,
     wiltSeconds,
     foes,

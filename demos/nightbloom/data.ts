@@ -139,7 +139,7 @@ export const PLANTS: Record<PlantId, PlantDef> = {
     streams: [1, 2, 2],
     sprites: ["p-catnip-1.png", "p-catnip-2.png", "p-catnip-3.png"],
     evolveAt: [420, 1400],
-    law: "HOMING ORBS. GROWS BY THE WOUNDS IT DEALS",
+    law: "HOMING ORBS, AND IT DANCES WITH DEATH: WIDER GRAZE, DOUBLE GLOW",
     spell: { name: "NINE LIVES", hint: "9 HOMING ORBS + CLEAR NEAR", cooldown: 18 },
   },
   bamboo: {
@@ -164,12 +164,12 @@ export const PLANTS: Record<PlantId, PlantDef> = {
     hp: [110, 140, 170],
     armor: [0, 1, 2],
     speed: 105,
-    dmg: [7, 9, 11],
+    dmg: [5, 7, 9],
     period: [0.34, 0.3, 0.26],
     streams: [3, 5, 7],
     sprites: ["p-sakura-1.png", "p-sakura-2.png", "p-sakura-3.png"],
     evolveAt: [420, 1400],
-    law: "TRUE-DAMAGE PETAL FAN. ARMOR MEANS NOTHING",
+    law: "SOFT PETALS, TRUE DAMAGE -- AND EVERY HIT HEALS THE MOST WOUNDED",
     spell: { name: "PETALFALL", hint: "CLEAR EVERY SHOT, SLOW ALL", cooldown: 15 },
   },
   lantern: {
@@ -194,12 +194,12 @@ export const PLANTS: Record<PlantId, PlantDef> = {
     hp: [100, 125, 150],
     armor: [0, 0, 0],
     speed: 110,
-    dmg: [6, 8, 10],
-    period: [0.26, 0.23, 0.2],
-    streams: [2, 2, 3],
+    dmg: [14, 18, 22],
+    period: [0.42, 0.38, 0.34],
+    streams: [1, 2, 2],
     sprites: ["p-primrose-1.png", "p-primrose-2.png", "p-primrose-3.png"],
     evolveAt: [360, 1200],
-    law: "GATHERS MOONLIGHT. MOTES ARE WORTH DOUBLE TO HIM",
+    law: "THROWS BANANAS, HARD. MOTES ARE WORTH DOUBLE TO HIM",
     spell: { name: "MOONRISE", hint: "+100 GLOW TO THE WHOLE ROSTER", cooldown: 15 },
   },
 };
@@ -210,6 +210,12 @@ export const MOTE_GLOW = 8;
 export const GRAZE_GLOW = 2;
 /** Graze radius around the hitbox, px. */
 export const GRAZE_R = 11;
+/** The catnip dances with death: wider graze ring, double its glow. */
+export const CATNIP_GRAZE_R = 16;
+export const CATNIP_GRAZE_MULT = 2;
+/** Sakura's kindness: every damaging petal heals the most wounded waking
+ *  form this much. */
+export const SAKURA_HEAL = 1;
 /** Player hitbox radius, px (danmaku-small; SQUARE focus reveals it). */
 export const HIT_R = 3;
 /** Seconds of mercy invulnerability after taking a hit. */
@@ -401,6 +407,7 @@ export const NIGHT_SEED = 0x9e3779b9;
 export type SfxKind =
   | "shoot"
   | "unlock"
+  | "heal"
   | "hit"
   | "kill"
   | "hurt"
@@ -423,7 +430,12 @@ export const SHOTS = {
   bolt: { sprite: "shot-bolt.png" },
   orb: { sprite: "shot-orb.png" },
   mochi: { sprite: "shot-mochi.png" },
+  banana: { sprite: "shot-banana.png" },
 } as const;
+
+/** The piloted avatar grows with its stage, pokemon-style (px). The HITBOX
+ *  does not — danmaku manners: what you dodge with is always HIT_R. */
+export const AVATAR_SIZE = [22, 27, 32] as const;
 
 export const SCENES = {
   title: "bg-title.png",
@@ -473,7 +485,7 @@ export const ART: ArtEntry[] = [
   {
     name: "p-primrose-1.png",
     prompt:
-      "hulking gorilla plant guardian with a huge muscular body and six-pack abs, " +
+      "small young gorilla plant guardian cub, a muscular little body with baby six-pack abs, " +
       "tiny ultra-cute kawaii face with big sparkling eyes and blushing cheeks, " +
       "a small silver moonflower sprout on its head, pixel art game sprite, " +
       "clean thick outline, single centered character, full body",
@@ -482,18 +494,18 @@ export const ART: ArtEntry[] = [
   {
     name: "p-primrose-2.png",
     prompt:
-      "the same hulking gorilla grown mightier, bigger six-pack abs, flexing both arms, " +
-      "silver moonflower in full bloom on its head, the same tiny adorable " +
-      "sparkling-eyed blushing face, pixel art game sprite, clean thick outline, full body",
+      "the same gorilla grown bigger and mightier, broad shoulders, prominent carved six-pack abs " +
+      "on its bare belly, flexing both arms, silver moonflower in full bloom on its head, the same tiny " +
+      "adorable sparkling-eyed blushing face, pixel art game sprite, clean thick outline, full body",
     w: UNIT, h: UNIT, seed: 1011, transparent: true, direction: "east",
     initFrom: "p-primrose-1.png", initStrength: 320,
   },
   {
     name: "p-primrose-3.png",
     prompt:
-      "the same gorilla ascended, gleaming carved muscles, a glowing white crescent halo " +
-      "behind its shoulders, radiant moonflower crown, the same tiny sweet blushing face, " +
-      "pixel art game sprite, clean thick outline, full body",
+      "the same gorilla fully grown huge, a bodybuilder mountain of muscle with a prominent " +
+      "six-pack on its bare belly, a glowing white crescent halo behind its shoulders, radiant " +
+      "moonflower crown, the same tiny sweet blushing face, pixel art game sprite, clean thick outline, full body",
     w: UNIT, h: UNIT, seed: 1012, transparent: true, direction: "east",
     initFrom: "p-primrose-2.png", initStrength: 320,
   },
@@ -503,9 +515,9 @@ export const ART: ArtEntry[] = [
     "the same bamboo as an elite arbalest, twin dart launchers, gold trim, battle-worn leaf cape",
   ], 1020),
   ...plantArt(PLANTS.catnip, [
-    "tiny sitting kitten sprout with sleek black fur and golden paws, chest and ear tips, a white crescent moon mark on its forehead, leaf ears, huge adorable eyes, curled leaf tail",
-    "the same black and gold kitten grown into a two-tailed cat blossom, white crescent moon mark glowing on its forehead, golden bell collar, playful grin, two swishing leaf tails",
-    "the same black and gold cat as a regal spirit, many glowing petal tails fanned out, a bright white full moon mark shining on its forehead, tiny golden crown, sparkling whiskers",
+    "tiny baby kitten sprout, small and round, sleek black fur with golden paws chest and ear tips, a white crescent moon mark on its forehead, leaf ears, huge adorable eyes, curled leaf tail",
+    "the same black and gold cat grown into a young sleek two-tailed cat blossom, taller now, white crescent moon mark glowing on its forehead, golden bell collar, playful grin, two swishing leaf tails",
+    "the same black and gold cat fully grown, a large regal spirit cat, many glowing petal tails fanned wide, a bright white full moon mark shining on its forehead, tiny golden crown, sparkling whiskers",
   ], 1030),
   ...plantArt(PLANTS.lantern, [
     "small round stone garden lantern with a fluffy mossy cap and a gentle warm smiling face",
@@ -513,9 +525,9 @@ export const ART: ArtEntry[] = [
     "the same stone lantern as a cozy little fortress with a kind carved guardian face, warm gold light, soft ivy plates",
   ], 1040),
   ...plantArt(PLANTS.sakura, [
-    "small round cherry blossom sapling with a shy blushing face and big soft eyes, a few pink petals drifting",
-    "the same cherry tree grown into a blossom guardian, swirl of pink petals, calm smile",
-    "the same tree as a great sakura spirit in storm bloom, petal vortex, ancient serene face",
+    "tiny baby cherry blossom sapling, small and round with a shy blushing face and big soft eyes, a few pink petals drifting",
+    "the same cherry tree grown taller into a young blossom guardian, swirl of pink petals, calm smile",
+    "the same tree fully grown, a great wide sakura spirit in storm bloom, petal vortex, ancient serene face",
   ], 1050),
   // --- foes (32x32, transparent, walk west) --------------------------------
   ...foeArt(FOES.wisp, [
@@ -543,6 +555,7 @@ export const ART: ArtEntry[] = [
   { name: "shot-orb.png", prompt: `round pink energy orb with a tiny paw print, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3002, transparent: true },
   { name: "shot-mochi.png", prompt: `small round white mochi rice cake, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3003, transparent: true },
   { name: "mote.png", prompt: `small silver-blue moonlight droplet, sparkling, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3004, transparent: true },
+  { name: "shot-banana.png", prompt: `curved ripe yellow banana, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3005, transparent: true },
   // --- scenes (256x128 opaque, drawn at 480x240) ----------------------------
   {
     name: "bg-title.png",

@@ -73,6 +73,7 @@ const SFX: Record<SfxKind, SfxDef> = {
   },
   evolve: { voices: ARP([523.25, 659.25, 783.99], 0.07, 0.12, 0.12, "sine") },
   unlock: { voices: ARP([659.25, 880, 1174.66, 1567.98], 0.09, 0.2, 0.13, "triangle") },
+  heal: { voices: [{ f0: 880, f1: 1320, dur: 0.07, type: "sine", gain: 0.05 }], throttle: 260 },
   bossbreak: {
     voices: [{ f0: 160, f1: 40, dur: 0.5, type: "sawtooth", gain: 0.28 }, ...ARP([659.25, 783.99, 1046.5], 0.09, 0.16, 0.1, "sine")],
     noise: [{ dur: 0.3, gain: 0.22, cutoff: 700 }],
