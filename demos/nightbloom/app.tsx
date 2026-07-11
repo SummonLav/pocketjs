@@ -578,41 +578,116 @@ function ToastStack(props: { game: Nightbloom }) {
 // Codex — the almanac of laws (SELECT)
 // ---------------------------------------------------------------------------
 
-function Codex() {
+/** Text does not soft-wrap on the native host — the book is typeset by
+ *  hand into short lines, and data laws are split at a word boundary. */
+function splitLine(text: string, at: number): [string, string] {
+  if (text.length <= at) return [text, ""];
+  const cut = text.lastIndexOf(" ", at);
+  return cut <= 0 ? [text, ""] : [text.slice(0, cut), text.slice(cut + 1)];
+}
+
+function LawLines(props: { text: string; cls: string }) {
+  const parts = () => splitLine(props.text, 32);
   return (
-    <View debugName="Codex" class="absolute inset-0 bg-[#020617e6] flex-col px-4 py-2 gap-1">
+    <View class="flex-col">
+      <Text class={props.cls}>{parts()[0]}</Text>
+      <Show when={parts()[1] !== ""}>
+        <Text class={props.cls}>{parts()[1]}</Text>
+      </Show>
+    </View>
+  );
+}
+
+const MANUAL_CONTROLS = [
+  "ARROWS   FLY, 8-WAY",
+  "X HOLD   FIRE",
+  "[] HOLD  FOCUS: SLOW + HITBOX",
+  "O OR R   NEXT WAKING FORM",
+  "L        PREVIOUS FORM",
+  "/\\       THE PILOT'S SPELL CARD",
+  "START    PAUSE",
+];
+const MANUAL_BREATH = [
+  "PILOT DOWN? SWITCH WITHIN 1.5s",
+  "OR THE RUN ENDS. NOBODY ELSE",
+  "AWAKE MEANS IT ENDS AT ONCE.",
+];
+const MANUAL_NIGHT = [
+  "SURVIVE TO DAWN: NINE WAVES,",
+  "A MIDBOSS, AND THE DIVA'S",
+  "THREE CARDS AT THE WITCHING",
+  "HOUR. EVERY CARD CHANGES HER.",
+];
+const MANUAL_GROWTH = [
+  "GLOW COMES FROM WOUNDS DEALT,",
+  "MOTES TAKEN, BULLETS GRAZED.",
+  "STAGES I-II-III: BIGGER FORMS,",
+  "WIDER PATTERNS. ABOVE THE HIGH",
+  "LINE ALL MOTES COME TO YOU.",
+  "SPELLS CLEAR BULLETS, TOO.",
+];
+
+function CodexManual() {
+  return (
+    <View debugName="CodexManual" class="absolute inset-0 bg-[#020617fa] flex-col px-4 py-2 gap-1">
       <View class="flex-row justify-between items-end">
-        <Text class="text-lg text-pink-200 font-bold tracking-wide">THE GARDEN CODEX</Text>
+        <Text class="text-lg text-pink-200 font-bold tracking-wide">THE PILOT'S MANUAL</Text>
+        <Text class="text-xs text-slate-500">SELECT  NEXT PAGE</Text>
+      </View>
+      <View class="flex-row gap-3 pt-1">
+        <View class="flex-col gap-1" style={{ width: 218 }}>
+          <Text class="text-xs text-cyan-300 tracking-wide">CONTROLS</Text>
+          <For each={MANUAL_CONTROLS}>{(l) => <Text class="text-xs text-slate-300">{l}</Text>}</For>
+          <Text class="text-xs text-red-300 tracking-wide pt-1">THE LAST BREATH</Text>
+          <For each={MANUAL_BREATH}>{(l) => <Text class="text-xs text-slate-400">{l}</Text>}</For>
+        </View>
+        <View class="flex-col gap-1" style={{ width: 218 }}>
+          <Text class="text-xs text-violet-300 tracking-wide">THE NIGHT</Text>
+          <For each={MANUAL_NIGHT}>{(l) => <Text class="text-xs text-slate-400">{l}</Text>}</For>
+          <Text class="text-xs text-amber-300 tracking-wide pt-1">GROWTH</Text>
+          <For each={MANUAL_GROWTH}>{(l) => <Text class="text-xs text-slate-400">{l}</Text>}</For>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function CodexBestiary() {
+  return (
+    <View debugName="CodexBestiary" class="absolute inset-0 bg-[#020617fa] flex-col px-4 py-2 gap-1">
+      <View class="flex-row justify-between items-end">
+        <Text class="text-lg text-pink-200 font-bold tracking-wide">FORMS AND FOES</Text>
         <Text class="text-xs text-slate-500">SELECT  CLOSE</Text>
       </View>
-      <View class="flex-row gap-4 pt-1">
-        <View class="flex-col gap-1 flex-1">
-          <Text class="text-xs text-cyan-300 tracking-wide">FORMS -- GROW BY THEIR OWN WORK</Text>
+      <View class="flex-row gap-3 pt-1">
+        <View class="flex-col gap-1" style={{ width: 218 }}>
+          <Text class="text-xs text-cyan-300 tracking-wide">FORMS -- BY THEIR OWN WORK</Text>
           <For each={PLANT_ORDER}>
             {(id) => (
               <View class="flex-col">
                 <Text class="text-xs text-slate-200">{PLANTS[id].name}</Text>
-                <Text class="text-xs text-slate-500">{PLANTS[id].law}</Text>
+                <LawLines text={PLANTS[id].law} cls="text-xs text-slate-500" />
               </View>
             )}
           </For>
+          <Text class="text-xs text-slate-400 pt-1">ONLY THE CATNIP FLIES AT DUSK.</Text>
+          <Text class="text-xs text-slate-400">ASCEND ONCE: THE SAPLING WAKES.</Text>
+          <Text class="text-xs text-slate-400">FELL THE UMBRELLA FOR THE APE.</Text>
         </View>
-        <View class="flex-col gap-1 flex-1">
-          <Text class="text-xs text-red-300 tracking-wide">FOES -- GROW WITH THE HOUR</Text>
+        <View class="flex-col gap-1" style={{ width: 218 }}>
+          <Text class="text-xs text-red-300 tracking-wide">FOES -- WITH THE HOUR</Text>
           <For each={FOE_ORDER}>
             {(id) => (
               <View class="flex-col">
                 <Text class="text-xs text-slate-200">{FOES[id].name}</Text>
-                <Text class="text-xs text-slate-500">{FOES[id].law}</Text>
+                <LawLines text={FOES[id].law} cls="text-xs text-slate-500" />
               </View>
             )}
           </For>
-          <Text class="text-xs text-slate-400 pt-1">DUSK SENDS STAGE I. MIDNIGHT II. THE WITCHING HOUR III.</Text>
+          <Text class="text-xs text-slate-400 pt-1">DUSK I, MIDNIGHT II, WITCHING III.</Text>
+          <Text class="text-xs text-slate-400">SPARED FOES DRIFT OFF-SCREEN.</Text>
         </View>
       </View>
-      <Text class="text-xs text-slate-400">MOTES FEED THE PILOTED FORM. GRAZE FEEDS IT TOO. CLIMB PAST THE HIGH LINE AND EVERY MOTE COMES TO YOU.</Text>
-      <Text class="text-xs text-slate-400">ONLY THE CATNIP ANSWERS AT DUSK. ASCEND ONCE TO WAKE THE SAPLING; SEE THE UMBRELLA OFF TO ROUSE THE MOUNTAIN.</Text>
-      <Text class="text-xs text-slate-500">IF THE PILOT DIES, SWITCH WITHIN THE LAST BREATH -- OR THE NIGHT TAKES THE RUN.</Text>
     </View>
   );
 }
@@ -635,8 +710,11 @@ function BattleScreen(props: { game: Nightbloom }) {
           <Text class="text-xs text-slate-400">START  RESUME</Text>
         </View>
       </Show>
-      <Show when={g.codex()}>
-        <Codex />
+      <Show when={g.codexPage() === 1}>
+        <CodexManual />
+      </Show>
+      <Show when={g.codexPage() === 2}>
+        <CodexBestiary />
       </Show>
     </View>
   );

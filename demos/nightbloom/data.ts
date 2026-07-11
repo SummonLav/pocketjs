@@ -255,7 +255,7 @@ export const FOES: Record<FoeId, FoeDef> = {
     firePeriod: [1.9, 1.6, 1.4],
     shotSpeed: [76, 86, 96],
     sprites: ["f-wisp-1.png", "f-wisp-2.png", "f-wisp-3.png"],
-    law: "DRIFTS DOWN, AIMS AT YOU. THE MANY",
+    law: "DRIFTS DOWN AND AIMS AT YOU",
   },
   kasa: {
     id: "kasa",
@@ -268,7 +268,7 @@ export const FOES: Record<FoeId, FoeDef> = {
     firePeriod: [2.2, 2.0, 1.8],
     shotSpeed: [66, 74, 82],
     sprites: ["f-kasa-1.png", "f-kasa-2.png", "f-kasa-3.png"],
-    law: "ARMORED SPREADS. PETALS DO NOT CARE",
+    law: "ARMORED SPREADS. PETALS PIERCE",
   },
   usagi: {
     id: "usagi",
@@ -281,7 +281,7 @@ export const FOES: Record<FoeId, FoeDef> = {
     firePeriod: [1.4, 1.2, 1.0],
     shotSpeed: [110, 122, 134],
     sprites: ["f-usagi-1.png", "f-usagi-2.png", "f-usagi-3.png"],
-    law: "WEAVES AND SNIPES. FAST AND FRAIL",
+    law: "WEAVES AND SNIPES, FAST, FRAIL",
   },
   uta: {
     id: "uta",
@@ -294,7 +294,7 @@ export const FOES: Record<FoeId, FoeDef> = {
     firePeriod: [2.6, 2.3, 2.0],
     shotSpeed: [58, 64, 70],
     sprites: ["f-uta-1.png", "f-uta-2.png", "f-uta-3.png"],
-    law: "RINGS, AND HER SONG HASTENS EVERY GUN. SILENCE HER",
+    law: "RINGS; HER SONG HASTENS THE REST",
   },
 };
 

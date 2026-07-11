@@ -226,7 +226,8 @@ export interface Toast {
 export interface Nightbloom {
   outcome: Accessor<Outcome>;
   paused: Accessor<boolean>;
-  codex: Accessor<boolean>;
+  /** 0 = closed, 1 = the pilot's manual, 2 = forms & foes. */
+  codexPage: Accessor<number>;
   phase: Accessor<PhaseId>;
   augury: Accessor<string>;
   second: Accessor<number>;
@@ -286,7 +287,7 @@ const HURT_TICKS = Math.round(HURT_INVULN * TPS);
 export function createNightbloom(): Nightbloom {
   const outcome = cell<Outcome>("title");
   const paused = cell(false);
-  const codex = cell(false);
+  const codexPage = cell(0);
   const phase = cell<PhaseId>("dusk");
   const augury = cell("");
   const second = cell(0);
@@ -1207,8 +1208,8 @@ export function createNightbloom(): Nightbloom {
     }
     if (!started && pressed & BTN.START) paused.set(!paused());
     if (paused()) return;
-    if (pressed & BTN.SELECT) codex.set(!codex());
-    if (codex()) return;
+    if (pressed & BTN.SELECT) codexPage.set((codexPage() + 1) % 3);
+    if (codexPage() > 0) return;
 
     const k = ticksPerFrame();
     for (let i = 0; i < k; i++) {
@@ -1248,7 +1249,7 @@ export function createNightbloom(): Nightbloom {
   return {
     outcome,
     paused,
-    codex,
+    codexPage,
     phase,
     augury,
     second,
