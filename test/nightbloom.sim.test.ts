@@ -7,11 +7,12 @@
 // 1/60 s micro-ticks (ticksPerFrame() per host frame).
 //
 // Two tapes:
-//   THE MARKSMAN — a full clear (~171 s): sweep-dodge at the bottom, rotate
-//                  the roster through the pilot seat (every form flies, three
-//                  reach stage III), spell cards on cooldown, and break the
-//                  NIGHT SPARROW DIVA's last card before it times out.
-//   THE SLEEPER  — nobody home (~138 s): the horde wilts all five forms.
+//   THE MARKSMAN — a full clear (~163 s): the catnip opens the night alone,
+//                  its first ascension wakes the sakura, the midboss's fall
+//                  rouses the gorilla, and the rotation walks all three
+//                  through the pilot seat to break the diva's last card.
+//   THE SLEEPER  — nobody home (~34 s): the lone catnip dies with no form
+//                  awake to switch to, and the night ends on the spot.
 //
 // Claims, same as the cafe/tidelight suites but on gameplay:
 //   IDENTITY     same tape -> byte-identical pixel trace
@@ -37,12 +38,12 @@ import { runScenario, treeHasText, type Trace } from "../host-sim/sim.ts";
 import { BTN } from "../spec/spec.ts";
 import { validateContent } from "../demos/nightbloom/data.ts";
 
-const MARKSMAN_SECONDS = 190; // dawn settles at ~170.7 s
-const SLEEPER_SECONDS = 150; // the last form wilts at ~138 s
+const MARKSMAN_SECONDS = 190; // dawn settles at ~162.6 s
+const SLEEPER_SECONDS = 60; // the lone catnip falls at ~34 s
 
-// THE MARKSMAN — lantern-anchored roster rotation with shielded strike
-// windows. The R at each cycle's end walks the pilot seat one form forward,
-// so over the night every plant flies (and three of them reach stage III).
+// THE MARKSMAN — sweep-dodge and rotate. The switch presses no-op while a
+// form is still locked, then pick each newcomer up as the night wakes it;
+// over the night every form flies.
 const MARKSMAN = (() => {
   const T: { at: number; press?: number; hold?: number }[] = [{ at: 1.0, press: BTN.START }];
   // fire is held from 1.5 s to the end; 1.5 s sweep legs dodge aimed streams
@@ -161,22 +162,21 @@ describe("nightbloom: the night actually happened", () => {
     for (const t of [m60, m2]) {
       expect(treeHasText(t.tree, "DAWN BREAKS")).toBe(true);
       expect(treeHasText(t.tree, "THE DIVA FALLS SILENT")).toBe(true);
-      expect(treeHasText(t.tree, "SCORE: 8495")).toBe(true);
-      expect(treeHasText(t.tree, "GRAZE: 61")).toBe(true);
-      expect(treeHasText(t.tree, "FOES FELLED: 35")).toBe(true);
-      // Every form flew; three bloomed to stage III; the sakura wilted
-      // holding PETALFALL for the finale.
+      expect(treeHasText(t.tree, "SCORE: 8145")).toBe(true);
+      expect(treeHasText(t.tree, "GRAZE: 42")).toBe(true);
+      expect(treeHasText(t.tree, "FOES FELLED: 34")).toBe(true);
+      // The whole roster woke and every form survived to see the sun.
       expect(treeHasText(t.tree, "GREATEST BLOOM: STAGE 3")).toBe(true);
-      expect(treeHasText(t.tree, "SURVIVING FORMS: 4 OF 5")).toBe(true);
+      expect(treeHasText(t.tree, "SURVIVING FORMS: 3 OF 3 AWAKENED")).toBe(true);
     }
   });
 
-  test("the sleeper's garden falls dark, form by form", () => {
+  test("the sleeper's lone catnip falls with nobody to switch to", () => {
     for (const t of [s60, s2]) {
       expect(treeHasText(t.tree, "ETERNAL NIGHT")).toBe(true);
       expect(treeHasText(t.tree, "THE GARDEN FALLS DARK")).toBe(true);
       expect(treeHasText(t.tree, "FOES FELLED: 0")).toBe(true);
-      expect(treeHasText(t.tree, "SURVIVING FORMS: 0 OF 5")).toBe(true);
+      expect(treeHasText(t.tree, "SURVIVING FORMS: 0 OF 1 AWAKENED")).toBe(true);
       expect(treeHasText(t.tree, "GREATEST BLOOM: STAGE 1")).toBe(true);
     }
   });

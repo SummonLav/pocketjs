@@ -122,14 +122,16 @@ export interface PlantDef {
   spell: SpellDef;
 }
 
-export const PLANT_ORDER: PlantId[] = ["catnip", "lantern", "sakura", "bamboo", "primrose"];
+// The pilotable roster. Bamboo and the stone lantern stay in the tables as
+// reserve content (their art and stats remain), but only these three fly.
+export const PLANT_ORDER: PlantId[] = ["catnip", "sakura", "primrose"];
 
 export const PLANTS: Record<PlantId, PlantDef> = {
   catnip: {
     id: "catnip",
     name: "CATNIP KIT",
     stageNames: ["CATNIP KIT", "NEKOMATA", "NINELIVES"],
-    hp: [90, 115, 140],
+    hp: [110, 140, 170],
     armor: [0, 0, 0],
     speed: 120,
     dmg: [7, 8, 10],
@@ -159,7 +161,7 @@ export const PLANTS: Record<PlantId, PlantDef> = {
     id: "sakura",
     name: "SAKURA SENTINEL",
     stageNames: ["SAPLING", "GUARDIAN", "PETALSTORM"],
-    hp: [90, 115, 140],
+    hp: [110, 140, 170],
     armor: [0, 1, 2],
     speed: 105,
     dmg: [7, 9, 11],
@@ -168,7 +170,7 @@ export const PLANTS: Record<PlantId, PlantDef> = {
     sprites: ["p-sakura-1.png", "p-sakura-2.png", "p-sakura-3.png"],
     evolveAt: [420, 1400],
     law: "TRUE-DAMAGE PETAL FAN. ARMOR MEANS NOTHING",
-    spell: { name: "PETALFALL", hint: "CLEAR EVERY SHOT, SLOW ALL", cooldown: 18 },
+    spell: { name: "PETALFALL", hint: "CLEAR EVERY SHOT, SLOW ALL", cooldown: 15 },
   },
   lantern: {
     id: "lantern",
@@ -189,7 +191,7 @@ export const PLANTS: Record<PlantId, PlantDef> = {
     id: "primrose",
     name: "MOON PRIMROSE",
     stageNames: ["SPROUT", "FULL BLOOM", "MOONRISEN"],
-    hp: [80, 100, 125],
+    hp: [100, 125, 150],
     armor: [0, 0, 0],
     speed: 110,
     dmg: [6, 8, 10],
@@ -197,8 +199,8 @@ export const PLANTS: Record<PlantId, PlantDef> = {
     streams: [2, 2, 3],
     sprites: ["p-primrose-1.png", "p-primrose-2.png", "p-primrose-3.png"],
     evolveAt: [360, 1200],
-    law: "GATHERS MOONLIGHT: MOTES ARE WORTH DOUBLE TO HER",
-    spell: { name: "MOONRISE", hint: "+80 GLOW TO THE WHOLE ROSTER", cooldown: 18 },
+    law: "GATHERS MOONLIGHT. MOTES ARE WORTH DOUBLE TO HIM",
+    spell: { name: "MOONRISE", hint: "+100 GLOW TO THE WHOLE ROSTER", cooldown: 15 },
   },
 };
 
@@ -211,7 +213,10 @@ export const GRAZE_R = 11;
 /** Player hitbox radius, px (danmaku-small; SQUARE focus reveals it). */
 export const HIT_R = 3;
 /** Seconds of mercy invulnerability after taking a hit. */
-export const HURT_INVULN = 1.5;
+export const HURT_INVULN = 1.8;
+/** When the piloted form dies, you have this long to switch — or the night
+ *  ends. The last breath is a choice. */
+export const WILT_WINDOW = 1.5;
 /** Seconds between form switches. */
 export const SWITCH_COOLDOWN = 0.5;
 /** Focus movement multiplier while SQUARE is held. */
@@ -366,16 +371,16 @@ export interface BossDef {
 export const MIDBOSS: BossDef = {
   name: "IRON KASA, GROWN WRONG",
   sprite: "f-kasa-3.png",
-  phases: [{ card: "UMBRELLA SIGN -- RIBS OF THE STORM", hp: 680, timeout: 30 }],
+  phases: [{ card: "UMBRELLA SIGN -- RIBS OF THE STORM", hp: 620, timeout: 30 }],
 };
 
 export const BOSS: BossDef = {
   name: "THE NIGHT SPARROW DIVA",
   sprite: "f-uta-3.png",
   phases: [
-    { card: "NIGHT SONG -- WANDERING CHORUS", hp: 750, timeout: 36 },
-    { card: "MOCHI SIGN -- MOONFALL CANTATA", hp: 850, timeout: 36 },
-    { card: "FINALE -- THE ETERNAL NIGHT", hp: 1000, timeout: 44 },
+    { card: "NIGHT SONG -- WANDERING CHORUS", hp: 680, timeout: 36 },
+    { card: "MOCHI SIGN -- MOONFALL CANTATA", hp: 780, timeout: 36 },
+    { card: "FINALE -- THE ETERNAL NIGHT", hp: 900, timeout: 44 },
   ],
 };
 
@@ -395,6 +400,7 @@ export const NIGHT_SEED = 0x9e3779b9;
 
 export type SfxKind =
   | "shoot"
+  | "unlock"
   | "hit"
   | "kill"
   | "hurt"
@@ -461,20 +467,45 @@ function foeArt(def: FoeDef, stagePrompts: [string, string, string], baseSeed: n
 
 export const ART: ArtEntry[] = [
   // --- plants (32x32, transparent, face east) -----------------------------
-  ...plantArt(PLANTS.primrose, [
-    "small round silver-blue moonflower sprout in a mossy clay pot, petals half open, sleepy sweet smile",
-    "the same moonflower in radiant full bloom, silver petals wide, serene smile, soft moonlight halo",
-    "the same moonflower ascended, ring of floating petals, bright crescent halo crown, tiny stars",
-  ], 1010),
+  // The moon primrose is a gap-moe gorilla: a mountain of muscle with the
+  // sweetest little face. Custom style — the soft plant suffix would melt
+  // the abs.
+  {
+    name: "p-primrose-1.png",
+    prompt:
+      "hulking gorilla plant guardian with a huge muscular body and six-pack abs, " +
+      "tiny ultra-cute kawaii face with big sparkling eyes and blushing cheeks, " +
+      "a small silver moonflower sprout on its head, pixel art game sprite, " +
+      "clean thick outline, single centered character, full body",
+    w: UNIT, h: UNIT, seed: 1010, transparent: true, direction: "east",
+  },
+  {
+    name: "p-primrose-2.png",
+    prompt:
+      "the same hulking gorilla grown mightier, bigger six-pack abs, flexing both arms, " +
+      "silver moonflower in full bloom on its head, the same tiny adorable " +
+      "sparkling-eyed blushing face, pixel art game sprite, clean thick outline, full body",
+    w: UNIT, h: UNIT, seed: 1011, transparent: true, direction: "east",
+    initFrom: "p-primrose-1.png", initStrength: 320,
+  },
+  {
+    name: "p-primrose-3.png",
+    prompt:
+      "the same gorilla ascended, gleaming carved muscles, a glowing white crescent halo " +
+      "behind its shoulders, radiant moonflower crown, the same tiny sweet blushing face, " +
+      "pixel art game sprite, clean thick outline, full body",
+    w: UNIT, h: UNIT, seed: 1012, transparent: true, direction: "east",
+    initFrom: "p-primrose-2.png", initStrength: 320,
+  },
   ...plantArt(PLANTS.bamboo, [
     "chubby young jade bamboo shoot with a determined cute face, little leaf arms hugging one tiny dart",
     "the same bamboo grown into an archer, crossbow-like leaf arms drawn, focused eyes, jade green",
     "the same bamboo as an elite arbalest, twin dart launchers, gold trim, battle-worn leaf cape",
   ], 1020),
   ...plantArt(PLANTS.catnip, [
-    "tiny catnip sprout shaped like a sitting kitten, leaf ears, huge adorable eyes, pink nose, curled leaf tail",
-    "the same kitten plant grown into a two-tailed cat blossom, playful grin, pink flower bell collar, two swishing leaf tails",
-    "the same cat flower as a regal spirit cat, many glowing petal tails fanned out, tiny golden crown, sparkling whiskers",
+    "tiny sitting kitten sprout with sleek black fur and golden paws, chest and ear tips, a white crescent moon mark on its forehead, leaf ears, huge adorable eyes, curled leaf tail",
+    "the same black and gold kitten grown into a two-tailed cat blossom, white crescent moon mark glowing on its forehead, golden bell collar, playful grin, two swishing leaf tails",
+    "the same black and gold cat as a regal spirit, many glowing petal tails fanned out, a bright white full moon mark shining on its forehead, tiny golden crown, sparkling whiskers",
   ], 1030),
   ...plantArt(PLANTS.lantern, [
     "small round stone garden lantern with a fluffy mossy cap and a gentle warm smiling face",

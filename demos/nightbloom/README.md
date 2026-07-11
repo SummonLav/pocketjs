@@ -3,9 +3,10 @@
 A vertical danmaku shooter on the PocketJS deterministic runtime, in the
 grammar of Touhou's *Imperishable Night*: the player pilots one plant at the
 bottom of a portrait playfield, the eternal-night youkai horde descends from
-the treeline above, and the piloted form switches mid-fight — five plants,
-five shot types, five spell cards, one three-card final boss. The art is the
-garden-defense bestiary, PixelLab-generated and committed.
+the treeline above, and the piloted form switches mid-fight. The night opens
+with ONE form on the roster — the black-and-gold moon cat — and wakes the
+rest as you play; when the pilot dies, you switch within its last breath or
+the run ends. The art is PixelLab-generated and committed.
 
 On the 480x272 landscape screen the field is the classic arcade adaptation:
 a portrait column in the center, HUD panels on both sides (the night on the
@@ -14,8 +15,8 @@ left, the roster on the right).
 ![NIGHTBLOOM: the NIGHT SPARROW DIVA's first card](../../assets/screenshots/nightbloom.png)
 
 *The witching hour. The NIGHT SPARROW DIVA opens NIGHT SONG — WANDERING
-CHORUS; the bamboo arbalest answers from below as the roster rotates
-through the pilot seat.*
+CHORUS; MOON PRIMROSE — a mountain of abs with the sweetest face — holds
+the pilot seat while the moon cat and the sakura rest.*
 
 ## Play it
 
@@ -35,22 +36,27 @@ bun scripts/dev.ts nightbloom-main    # then open http://127.0.0.1:8130/?demo=ni
 | START | Space | start / pause |
 
 Survive the night: nine waves across DUSK and MIDNIGHT, a midboss, and THE
-NIGHT SPARROW DIVA's three spell cards at the witching hour. When a form
-wilts the next one takes the stick; lose all five and the night is eternal.
+NIGHT SPARROW DIVA's three spell cards at the witching hour.
 
-## The roster — five forms, five answers
+**The roster wakes as you play.** Only the CATNIP KIT answers at dusk — the
+other two cards show `?`. Ascend once (stage II) and the sakura SAPLING
+wakes; see the midboss off and the mountain answers. **And no pilot switches
+itself**: when the piloted form dies the LAST BREATH opens — a 1.5 s window
+to switch to a waking form (O / L / R). Miss it, or die with nobody else
+awake, and the night takes the run.
 
-| form | shot | the trade |
-| --- | --- | --- |
-| CATNIP KIT | homing orbs | never misses, hits soft; the boss-killer |
-| BAMBOO ARBALEST | piercing bolts | straight lines, hits through bodies |
-| SAKURA SENTINEL | petal fan | true damage — the KASA RONIN's armor means nothing |
-| STONE LANTERN | slow heavy shots | armor + a huge pool; STONEHEART heals it full |
-| MOON PRIMROSE | thin twin streams | motes are worth double glow to her |
+## The roster — three forms, three answers
 
-Spell cards double as bullet clears: NINE LIVES (homing burst), PIERCING
-GALE (a beam up the column), PETALFALL (clear every shot on the field),
-STONEHEART (full heal + shield), MOONRISE (+80 glow to the whole roster).
+| form | wakes | shot | the trade |
+| --- | --- | --- | --- |
+| CATNIP KIT | at dusk | homing orbs | a black-and-gold moon cat, a white moon waxing on its brow as it ascends; never misses, hits soft |
+| SAKURA SENTINEL | first ascension | petal fan | true damage — the KASA RONIN's armor means nothing |
+| MOON PRIMROSE | the midboss's fall | thin twin streams | a hulking gorilla with carved abs and the sweetest little face; motes are worth double glow to him |
+
+Spell cards double as bullet clears: NINE LIVES (homing burst), PETALFALL
+(clear every shot on the field), MOONRISE (+100 glow to the whole waking
+roster). Bamboo and the stone lantern remain in the tables as reserve
+content.
 
 **Two evolution laws.** Forms grow by their own work — glow comes from the
 damage the piloted form deals, the motes it gathers (auto-collected above
@@ -87,9 +93,10 @@ browser's autoplay policy. The headless sim and the PSP never install a
 sink, and the simulation is byte-identical either way.
 
 `test/nightbloom.sim.test.ts` drives two tapes through the headless sim
-host: THE MARKSMAN, a full clear (~171 s — every form flies, three reach
-stage III, the diva's last card breaks with 4 of 5 forms alive), and THE
-SLEEPER, an untouched loss. It asserts repeat-identity, chaos immunity,
+host: THE MARKSMAN, a full clear (~163 s — the catnip opens alone, the
+night wakes the other two, every form flies and all three see the dawn),
+and THE SLEEPER, whose lone catnip falls at ~34 s with nobody awake to
+switch to. It asserts repeat-identity, chaos immunity,
 strict 4 Hz / 2 Hz subsampling of both tapes, cross-rate byte-equal outcome
 screens, augury effect timing, and the exact score / graze / kill / bloom
 ledger. Wired into `bun run test`.

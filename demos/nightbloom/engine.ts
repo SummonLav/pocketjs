@@ -62,6 +62,7 @@ import {
   TPS,
   UTA_HASTE,
   WAVES,
+  WILT_WINDOW,
   type BossDef,
   type FoeId,
   type PhaseId,
@@ -119,6 +120,8 @@ export interface PlantState {
   /** 0..1 — spell readiness for the HUD arc. */
   spellReady: Cell<number>;
   spellCdTicks: number;
+  /** Locked forms show as ? on the roster until the night wakes them. */
+  unlocked: Cell<boolean>;
 }
 
 export interface FoeInst {
@@ -228,6 +231,9 @@ export interface Nightbloom {
   activeIdx: Accessor<number>;
   roster: PlantState[];
   active: () => PlantState;
+  /** The pilot is dead and the last-breath switch window is open. */
+  wilting: Accessor<boolean>;
+  wiltSeconds: Accessor<number>;
   foes: Accessor<FoeInst[]>;
   boss: Accessor<BossInst | null>;
   bossCard: Accessor<string>;
@@ -288,13 +294,14 @@ export function createNightbloom(): Nightbloom {
   const fxTick = cell(0);
   const beam = cell(0);
 
-  const roster: PlantState[] = PLANT_ORDER.map((kind) => ({
+  const roster: PlantState[] = PLANT_ORDER.map((kind, i) => ({
     kind,
     stage: cell(1),
     hp: cell(PLANTS[kind].hp[0]),
     glow: cell(0),
     spellReady: cell(1),
     spellCdTicks: 0,
+    unlocked: cell(i === 0), // only the catnip answers at dusk
   }));
 
   let tick = 0;
@@ -310,6 +317,10 @@ export function createNightbloom(): Nightbloom {
   let shieldTicks = 0;
   let midbossDone = false;
   let bossDone = false;
+  let wiltTicks = 0;
+  let rescues = 0;
+  const wilting = cell(false);
+  const wiltSeconds = cell(0);
 
   // -- deterministic helpers ------------------------------------------------
 
@@ -337,6 +348,15 @@ export function createNightbloom(): Nightbloom {
 
   const active = (): PlantState => roster[activeIdx()];
   const alive = (p: PlantState): boolean => p.hp() > 0;
+  const ready = (p: PlantState): boolean => alive(p) && p.unlocked();
+
+  function unlock(kind: PlantId, line: string): void {
+    const p = roster.find((r) => r.kind === kind);
+    if (!p || p.unlocked()) return;
+    p.unlocked.set(true);
+    toast(line);
+    sfx("unlock");
+  }
   const plantMaxHp = (p: PlantState): number => PLANTS[p.kind].hp[p.stage() - 1];
 
   // -- state churn -----------------------------------------------------------
@@ -378,13 +398,18 @@ export function createNightbloom(): Nightbloom {
     toasts.set([]);
     fxTick.set(0);
     beam.set(0);
-    for (const p of roster) {
+    wiltTicks = 0;
+    rescues = 0;
+    wilting.set(false);
+    wiltSeconds.set(0);
+    roster.forEach((p, i) => {
       p.stage.set(1);
       p.hp.set(PLANTS[p.kind].hp[0]);
       p.glow.set(0);
       p.spellReady.set(1);
       p.spellCdTicks = 0;
-    }
+      p.unlocked.set(i === 0);
+    });
   }
 
   function start(): void {
@@ -411,6 +436,7 @@ export function createNightbloom(): Nightbloom {
       toast(`${def.name} ASCENDS: ${def.stageNames[p.stage() - 1]}`);
       fx(px(), py() - 14, "UP!", "evolve");
       sfx("evolve");
+      if (p.stage() >= 2) unlock("sakura", "THE SAPLING WAKES -- SAKURA JOINS THE ROSTER");
     }
   }
 
@@ -527,6 +553,7 @@ export function createNightbloom(): Nightbloom {
       if (b.mid) {
         midbossDone = true;
         if (broken) kills.set(kills() + 1);
+        unlock("primrose", "THE MOUNTAIN ANSWERS -- MOON PRIMROSE JOINS");
       } else {
         bossDone = true;
         if (broken) kills.set(kills() + 1);
@@ -537,7 +564,7 @@ export function createNightbloom(): Nightbloom {
   }
 
   function hurtPlayer(dmg: number): void {
-    if (invulnTicks > 0 || shieldTicks > 0) return;
+    if (invulnTicks > 0 || shieldTicks > 0 || wilting()) return;
     const p = active();
     const def = PLANTS[p.kind];
     const eff = Math.max(1, dmg - def.armor[p.stage() - 1]);
@@ -550,15 +577,19 @@ export function createNightbloom(): Nightbloom {
       p.hp.set(0);
       toast(`${def.name} WILTS`);
       sfx("wilt");
-      const next = roster.findIndex(alive);
-      if (next < 0) {
+      // No pilot switches itself: if no waking form is left to switch to,
+      // the night ends here. Otherwise the last breath opens — switch in
+      // time or lose the run.
+      const rescuable = roster.some((r, i) => i !== activeIdx() && ready(r));
+      if (!rescuable) {
         outcome.set("eternal");
         sfx("eternal");
         return;
       }
-      activeIdx.set(next);
-      toast(`NOW PILOTING: ${PLANTS[roster[next].kind].name}`);
-      invulnTicks = HURT_TICKS;
+      wiltTicks = Math.round(WILT_WINDOW * TPS);
+      wilting.set(true);
+      wiltSeconds.set(WILT_WINDOW);
+      toast("SWITCH -- NOW");
     }
   }
 
@@ -570,11 +601,18 @@ export function createNightbloom(): Nightbloom {
     let idx = activeIdx();
     for (let i = 0; i < n; i++) {
       idx = (idx + delta + n) % n;
-      if (alive(roster[idx])) break;
+      if (ready(roster[idx])) break;
     }
-    if (idx === activeIdx() || !alive(roster[idx])) return;
+    if (idx === activeIdx() || !ready(roster[idx])) return;
     activeIdx.set(idx);
     switchCd = SWITCH_TICKS;
+    if (wilting()) {
+      // the last-breath rescue
+      wilting.set(false);
+      wiltTicks = 0;
+      rescues++;
+      invulnTicks = HURT_TICKS;
+    }
     toast(`NOW PILOTING: ${PLANTS[roster[idx].kind].name}`);
     sfx("switch");
   }
@@ -632,7 +670,7 @@ export function createNightbloom(): Nightbloom {
 
   function castSpell(): void {
     const p = active();
-    if (p.spellCdTicks > 0) return;
+    if (p.spellCdTicks > 0 || wilting()) return;
     const def = PLANTS[p.kind];
     const owner = activeIdx();
     if (p.kind === "catnip") {
@@ -668,7 +706,7 @@ export function createNightbloom(): Nightbloom {
       p.hp.set(plantMaxHp(p));
       shieldTicks = 2 * TPS;
     } else {
-      for (const r of roster) if (alive(r)) grantGlow(r, 80);
+      for (const r of roster) if (ready(r)) grantGlow(r, 100);
     }
     toast(`SPELL CARD: ${def.spell.name}`);
     sfx("spell");
@@ -722,8 +760,17 @@ export function createNightbloom(): Nightbloom {
     px.set(Math.max(FIELD.x0 + PLAYER_INSET, Math.min(FIELD.x0 + FIELD.w - PLAYER_INSET, px() + dx * speed)));
     py.set(Math.max(FIELD.y0 + PLAYER_INSET, Math.min(FIELD.y0 + FIELD.h - PLAYER_INSET, py() + dy * speed)));
 
+    if (wilting()) {
+      wiltTicks--;
+      wiltSeconds.set(Math.max(0, Math.ceil(wiltTicks / TPS)));
+      if (wiltTicks <= 0) {
+        outcome.set("eternal");
+        sfx("eternal");
+        return;
+      }
+    }
     if (fireCd > 0) fireCd--;
-    if (held & BTN.CROSS && fireCd <= 0) fireVolley();
+    if (held & BTN.CROSS && fireCd <= 0 && !wilting()) fireVolley();
 
     if (switchCd > 0) switchCd--;
     if (invulnTicks > 0) invulnTicks--;
@@ -1100,6 +1147,10 @@ export function createNightbloom(): Nightbloom {
     activeKind: () => active().kind,
     activeHp: () => active().hp(),
     rosterAlive: () => roster.filter(alive).length,
+    rosterReady: () => roster.filter(ready).length,
+    unlockedCount: () => roster.filter((r) => r.unlocked()).length,
+    wilting: () => wilting(),
+    rescues: () => rescues,
     rosterGlow: () => roster.map((r) => ({ kind: r.kind, stage: r.stage(), hp: r.hp(), glow: Math.round(r.glow()) })),
     foesAlive: () => foes().length,
     bulletCount: () => enemyShots().length,
@@ -1130,6 +1181,8 @@ export function createNightbloom(): Nightbloom {
     activeIdx,
     roster,
     active,
+    wilting,
+    wiltSeconds,
     foes,
     boss,
     bossCard,

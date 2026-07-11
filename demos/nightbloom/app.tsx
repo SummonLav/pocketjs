@@ -71,7 +71,9 @@ function TitleScreen() {
 
 function EndScreen(props: { game: Nightbloom; win: boolean }) {
   const g = props.game;
-  const survivors = () => g.roster.filter((r) => r.hp() > 0).length;
+  // Only forms that ever WOKE count — a locked card never fought.
+  const awakened = () => g.roster.filter((r) => r.unlocked());
+  const survivors = () => awakened().filter((r) => r.hp() > 0).length;
   return (
     <View debugName="End" class="absolute inset-0">
       <Image class="absolute top-0 left-0 w-full h-[240]" src={props.win ? "bg-dawn.png" : "bg-eternal.png"} />
@@ -89,7 +91,7 @@ function EndScreen(props: { game: Nightbloom; win: boolean }) {
           <Text class="text-xs text-slate-300">{"GRAZE: " + g.graze()}</Text>
           <Text class="text-xs text-slate-300">{"FOES FELLED: " + g.kills()}</Text>
           <Text class="text-xs text-slate-300">{"GREATEST BLOOM: STAGE " + g.bestStage()}</Text>
-          <Text class="text-xs text-slate-300">{"SURVIVING FORMS: " + survivors() + " OF 5"}</Text>
+          <Text class="text-xs text-slate-300">{"SURVIVING FORMS: " + survivors() + " OF " + awakened().length + " AWAKENED"}</Text>
         </View>
       </View>
       <View class="absolute left-0 right-0 bottom-4 flex-col items-center">
@@ -291,6 +293,15 @@ function Field(props: { game: Nightbloom }) {
       <PlayerNode game={g} />
       <For each={g.enemyShots()}>{(s) => <EnemyShotNode game={g} shotId={s.id} />}</For>
       <For each={g.fxs()}>{(f) => <FxNode game={g} fx={f} />}</For>
+      <Show when={g.wilting()}>
+        <View
+          class="absolute left-0 right-0 flex-col items-center gap-1"
+          style={{ insetT: 96, opacity: ((g.fxTick() >> 3) & 1) === 0 ? 1 : 0.4 }}
+        >
+          <Text class="text-lg text-red-300 font-bold tracking-wide">LAST BREATH</Text>
+          <Text class="text-xs text-red-200 tracking-wide">{"SWITCH NOW  O / L / R   " + g.wiltSeconds() + "s"}</Text>
+        </View>
+      </Show>
       <Show when={g.boss()} keyed>
         {(b) => (
           <View class="absolute left-1 right-1 top-1 flex-col gap-1">
@@ -362,10 +373,25 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
   const wilted = () => p.hp() <= 0;
   const cardClass = () => {
     if (wilted()) return "flex-row items-center gap-1 p-1 rounded-md border border-slate-800 bg-slate-900 opacity-40";
+    if (isActive() && g.wilting()) return "flex-row items-center gap-1 p-1 rounded-md border border-red-400 bg-slate-800";
     if (isActive()) return "flex-row items-center gap-1 p-1 rounded-md border border-amber-300 bg-slate-800";
     return "flex-row items-center gap-1 p-1 rounded-md border border-slate-700 bg-slate-900";
   };
   return (
+    <Show
+      when={p.unlocked()}
+      fallback={
+        <View class="flex-row items-center gap-1 p-1 rounded-md border border-slate-800 bg-[#0b1023] opacity-60">
+          <View class="w-[20] h-[20] items-center justify-center">
+            <Text class="text-sm text-slate-500 font-bold">?</Text>
+          </View>
+          <View class="flex-col gap-1 grow">
+            <Text class="text-xs text-slate-600">? ? ?</Text>
+            <View class="h-1 rounded-sm bg-[#02061799]" />
+          </View>
+        </View>
+      }
+    >
     <View class={cardClass()}>
       <Image class="w-[20] h-[20]" src={def.sprites[p.stage() - 1]} />
       <View class="flex-col gap-1 grow">
@@ -385,6 +411,7 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
         </View>
       </View>
     </View>
+    </Show>
   );
 }
 
@@ -473,7 +500,8 @@ function Codex() {
         </View>
       </View>
       <Text class="text-xs text-slate-400">MOTES FEED THE PILOTED FORM. GRAZE FEEDS IT TOO. CLIMB PAST THE HIGH LINE AND EVERY MOTE COMES TO YOU.</Text>
-      <Text class="text-xs text-slate-500">WHEN A FORM WILTS THE NEXT ONE TAKES THE STICK. LOSE ALL FIVE AND THE NIGHT IS ETERNAL.</Text>
+      <Text class="text-xs text-slate-400">ONLY THE CATNIP ANSWERS AT DUSK. ASCEND ONCE TO WAKE THE SAPLING; SEE THE UMBRELLA OFF TO ROUSE THE MOUNTAIN.</Text>
+      <Text class="text-xs text-slate-500">IF THE PILOT DIES, SWITCH WITHIN THE LAST BREATH -- OR THE NIGHT TAKES THE RUN.</Text>
     </View>
   );
 }
