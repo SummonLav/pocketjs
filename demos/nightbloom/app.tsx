@@ -770,11 +770,11 @@ function NativePlayerShotLayer(props: { game: Nightbloom }) {
   const offY = FIELD.y0 + 5;
   for (let i = 0; i < batch.capacity; i++) {
     const at = i * 4;
-    // Catnip fire owns an emerald/lime shimmer palette that no enemy family
-    // uses. Alternating fixed slots keeps it distinctive without adding a
-    // second particle pass or any per-frame color work.
-    floats[at + 2] = (i & 1) === 0 ? 10 : 8;
-    words[at + 3] = (i & 1) === 0 ? 0xffb7e76e : 0xff64f2be;
+    // The Image node's PixelLab texture is shared by the whole particle
+    // batch. White keeps its authored mint/lime palette intact; there is
+    // still only one retained node and one packed host call per repaint.
+    floats[at + 2] = 10;
+    words[at + 3] = 0xffffffff;
   }
   let lastTick = -1;
   const sync = () => {
@@ -796,9 +796,10 @@ function NativePlayerShotLayer(props: { game: Nightbloom }) {
   };
   onFrame(sync);
   return (
-    <View
+    <Image
       debugName="PlayerShotLayer"
-      class="absolute inset-0"
+      class="absolute left-0 top-0 w-0 h-0"
+      src={SHOTS.orb.sprite}
       nodeRef={(node) => {
         layer = node;
         sync();
@@ -1393,7 +1394,7 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
             syncNativeRoster();
           }}
           style={{ height: 28, paddingT: 7 }}
-        >MOTES 0/50</Text>
+        >MOTES 0/28</Text>
       )}
     </View>
     </Show>

@@ -513,7 +513,14 @@ export const ART: ArtEntry[] = [
     "the same fluffy night sparrow as a radiant little diva, soft plume crown, spiral of glowing song light, sweet face",
   ], 2040),
   // --- projectiles + mote (32x32, transparent, drawn at 16px) ---------------
-  { name: "shot-orb.png", prompt: `round pink energy orb with a tiny paw print, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3002, transparent: true },
+  {
+    name: "shot-orb.png",
+    prompt: `bright emerald cat-paw comet projectile, four tiny lime toe sparks around a mint crescent core, friendly player attack, unmistakable cat magic, no pink, no red, ${SHOT_STYLE}`,
+    w: SHOT,
+    h: SHOT,
+    seed: 3012,
+    transparent: true,
+  },
   { name: "shot-mochi.png", prompt: `small round white mochi rice cake, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3003, transparent: true },
   { name: "mote.png", prompt: `small silver-blue moonlight droplet, sparkling, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3004, transparent: true },
   { name: "shot-banana.png", prompt: `curved ripe yellow banana, ${SHOT_STYLE}`, w: SHOT, h: SHOT, seed: 3005, transparent: true },

@@ -153,13 +153,13 @@ const SPECS: Spec[] = [
     capN: 180,
   },
   {
-    // Moon-primrose unlock window (86..89 s): the 50th collected mote flips
+    // Moon-primrose unlock window (61..64 s): the 28th collected mote flips
     // a pre-mounted roster card. This catches regressions that reintroduce a
     // structural reveal or collide the unlock with the midboss defeat frame.
     app: "nightbloom-unlock",
     entry: "nightbloom",
     inputScript: MARKSMAN_INPUT,
-    capStart: 5160,
+    capStart: 3660,
     capN: 180,
   },
   {

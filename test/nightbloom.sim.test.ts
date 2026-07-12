@@ -8,7 +8,7 @@
 //
 // Two tapes:
 //   THE MARKSMAN — a full clear (~183 s): the catnip opens the night alone,
-//                  fifty gathered moon motes rouse the healing gorilla, and
+//                  twenty-eight gathered moon motes rouse the healing gorilla,
 //                  rotation walks both forms
 //                  through the pilot seat to break the diva's last card.
 //   THE SLEEPER  — nobody home (~40 s): the lone catnip dies with no form
@@ -163,15 +163,15 @@ describe("nightbloom: the night actually happened", () => {
       expect(treeHasText(t.tree, "DAWN BREAKS")).toBe(true);
       expect(treeHasText(t.tree, "THE DIVA FALLS SILENT")).toBe(true);
       // Act one: the score takes the stage (settled by the final frame).
-      expect(treeHasText(t.tree, "6830")).toBe(true);
-      expect(treeHasText(t.tree, "GRAZE: 48")).toBe(true);
+      expect(treeHasText(t.tree, "6930")).toBe(true);
+      expect(treeHasText(t.tree, "GRAZE: 58")).toBe(true);
       expect(treeHasText(t.tree, "FOES FELLED: 20")).toBe(true);
       // The whole roster woke and every form survived to see the sun.
       expect(treeHasText(t.tree, "GREATEST BLOOM: STAGE 3")).toBe(true);
       expect(treeHasText(t.tree, "SURVIVING FORMS: 2 OF 2 AWAKENED")).toBe(true);
       // Act two: ONE medal, stamped on and congratulating the wrong thing.
       expect(treeHasText(t.tree, "PINCUSHION")).toBe(true);
-      expect(treeHasText(t.tree, "STRUCK 18 TIMES AND PROUD")).toBe(true);
+      expect(treeHasText(t.tree, "STRUCK 19 TIMES AND PROUD")).toBe(true);
     }
   });
 

@@ -328,9 +328,9 @@ const WORLD_DRIFT = 10 / TPS;
 const MAX_PLAYER_SHOTS = 28;
 export const MAX_MOTES = 24;
 /** The moon primrose wakes from player-earned enemy drops, not a scripted
- *  boss beat. The winning tape reaches 45 before the midboss falls and then
- *  crosses 50 while collecting the scattered bounty a few seconds later. */
-export const PRIMROSE_UNLOCK_MOTES = 50;
+ *  boss beat. Twenty-eight motes rewards an active pilot before the midboss
+ *  without coupling the unlock to the boss's resource-heavy entrance. */
+export const PRIMROSE_UNLOCK_MOTES = 28;
 
 const SWITCH_TICKS = Math.round(SWITCH_COOLDOWN * TPS);
 const HURT_TICKS = Math.round(HURT_INVULN * TPS);
@@ -1448,7 +1448,7 @@ export function createNightbloom(options: NightbloomOptions = {}): Nightbloom {
         const collected = motesCollected() + 1;
         motesCollected.set(collected);
         if (collected === PRIMROSE_UNLOCK_MOTES) {
-          unlock("primrose", "50 MOON MOTES ANSWER -- MOON PRIMROSE JOINS");
+          unlock("primrose", "28 MOON MOTES ANSWER -- MOON PRIMROSE JOINS");
         }
         const p = active();
         const worth = p.kind === "primrose" ? MOTE_GLOW * 2 : MOTE_GLOW;
