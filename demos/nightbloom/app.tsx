@@ -224,9 +224,13 @@ function DeclarativeStarfield(props: { game: Nightbloom }) {
 
 function NativeStarfield(props: { game: Nightbloom }) {
   let layer: NodeMirror | undefined;
+  let lastTick = -2;
   const batch = hot.createParticleBatch(STARS.length);
   const sync = () => {
     const tick = props.game.fxTick();
+    if (tick !== 0 && (tick & 1) !== 0) return;
+    if (tick === lastTick) return;
+    lastTick = tick;
     batch.reset();
     for (const star of STARS) {
       const y = (star.y + Math.floor(tick * (star.layer === 1 ? 0.35 : 0.7))) % FIELD.h;
@@ -433,13 +437,15 @@ function Foes(props: { game: Nightbloom; movers: MoverRegistry }) {
     : <For each={props.game.foes()}>{(foe) => <FoeNode foe={foe} movers={props.movers} />}</For>;
 }
 
-function BossNode(props: { game: Nightbloom }) {
+function DeclarativeBossNode(props: { game: Nightbloom }) {
   const g = props.game;
   return (
     <Show when={g.boss()} keyed>
       {(b) => {
         const phase = () => b.def.phases[b.phase()];
         const size = () => phase().size;
+        const left = () => (g.fxTick(), b.x - FIELD.x0 - size() / 2);
+        const top = () => (g.fxTick(), b.y - FIELD.y0 - size() / 2);
         /** 0..1 metamorphosis progress (24 ticks), -1 when settled. */
         const morph = () => {
           const at = g.bossFlash();
@@ -452,8 +458,8 @@ function BossNode(props: { game: Nightbloom }) {
             debugName="Boss"
             class="absolute items-center justify-center"
             style={{
-              insetL: b.x() - FIELD.x0 - size() / 2,
-              insetT: b.y() - FIELD.y0 - size() / 2,
+              insetL: left(),
+              insetT: top(),
               width: size(),
               height: size(),
               scale: morph() >= 0 ? 1.45 - morph() * 0.45 : 1,
@@ -478,6 +484,108 @@ function BossNode(props: { game: Nightbloom }) {
       }}
     </Show>
   );
+}
+
+const MAX_BOSS_SIZE = 66;
+
+/** PSP keeps one pre-bound boss node alive for the whole battle. Position,
+ *  phase size, sprite, and the entry flash are paint-only updates. */
+function NativeBossNode(props: { game: Nightbloom }) {
+  const g = props.game;
+  let root: NodeMirror | undefined;
+  let image: NodeMirror | undefined;
+  let flash: NodeMirror | undefined;
+  const sync = () => {
+    const b = g.boss();
+    if (!b) {
+      hot.prop(root, "opacity", 0);
+      hot.prop(flash, "opacity", 0);
+      return;
+    }
+    const phase = b.def.phases[b.phase()];
+    const age = g.fxTick() - g.bossFlash();
+    const morph = age >= 0 && age < 24 ? age / 24 : -1;
+    const pulse = morph >= 0 ? 1.45 - morph * 0.45 : 1;
+    hot.image(image, phase.sprite);
+    hot.position(root, b.x - FIELD.x0 - MAX_BOSS_SIZE / 2, b.y - FIELD.y0 - MAX_BOSS_SIZE / 2);
+    hot.prop(root, "scale", phase.size / MAX_BOSS_SIZE * pulse);
+    hot.prop(root, "opacity", 1);
+    if (morph >= 0) {
+      hot.prop(flash, "scale", (20 + morph * 70) / 80);
+      hot.prop(flash, "opacity", 1 - morph);
+    } else {
+      hot.prop(flash, "opacity", 0);
+    }
+  };
+  onFrame(sync);
+  return (
+    <View
+      debugName="BossSlot"
+      class="absolute left-0 top-0 w-[66] h-[66] items-center justify-center"
+      nodeRef={(node) => { root = node; sync(); }}
+      style={{ opacity: 0 }}
+    >
+      <Image class="w-full h-full" src="boss-kasa.png" nodeRef={(node) => (image = node)} />
+      <View
+        class="absolute w-[80] h-[80] border-2 border-pink-300"
+        nodeRef={(node) => (flash = node)}
+        style={{ insetL: -7, insetT: -7, opacity: 0 }}
+      />
+    </View>
+  );
+}
+
+function BossNode(props: { game: Nightbloom }) {
+  return hot.supportsParticles() ? <NativeBossNode game={props.game} /> : <DeclarativeBossNode game={props.game} />;
+}
+
+function DeclarativeBossHealth(props: { game: Nightbloom }) {
+  return (
+    <Show when={props.game.boss()} keyed>
+      {(b) => (
+        <View class="absolute left-1 right-1 top-1 flex-col gap-1">
+          <View class="h-1 rounded-sm bg-[#02061799]">
+            <View
+              class="h-1 rounded-sm bg-red-400 origin-left w-full"
+              style={{ scaleX: (props.game.fxTick(), Math.max(0, b.hp / b.def.phases[b.phase()].hp)) }}
+            />
+          </View>
+        </View>
+      )}
+    </Show>
+  );
+}
+
+function NativeBossHealth(props: { game: Nightbloom }) {
+  let root: NodeMirror | undefined;
+  let fill: NodeMirror | undefined;
+  const sync = () => {
+    const b = props.game.boss();
+    if (!b) {
+      hot.prop(root, "opacity", 0);
+      return;
+    }
+    hot.prop(fill, "scaleX", Math.max(0, b.hp / b.def.phases[b.phase()].hp));
+    hot.prop(root, "opacity", 1);
+  };
+  onFrame(sync);
+  return (
+    <View
+      class="absolute left-1 right-1 top-1 flex-col gap-1"
+      nodeRef={(node) => { root = node; sync(); }}
+      style={{ opacity: 0 }}
+    >
+      <View class="h-1 rounded-sm bg-[#02061799]">
+        <View class="h-1 rounded-sm bg-red-400 origin-left w-full" nodeRef={(node) => (fill = node)} />
+      </View>
+    </View>
+  );
+}
+
+function BossHealth(props: { game: Nightbloom }) {
+  return hot.supportsParticles()
+    ? <NativeBossHealth game={props.game} />
+    : <DeclarativeBossHealth game={props.game} />;
 }
 
 function EnemyShotNode(props: { shot: EnemyShot; movers: MoverRegistry }) {
@@ -570,7 +678,7 @@ function PlayerShotNode(props: { shot: PlayerShot; movers: MoverRegistry }) {
 
 function NativePlayerShotLayer(props: { game: Nightbloom }) {
   let layer: NodeMirror | undefined;
-  const batch = hot.createParticleBatch(40);
+  const batch = hot.createParticleBatch(28);
   const sync = () => {
     const shots = props.game.playerShots();
     batch.reset();
@@ -594,6 +702,42 @@ function NativePlayerShotLayer(props: { game: Nightbloom }) {
   );
 }
 
+const BANANA_POOL = [0, 1, 2] as const;
+
+function NativeBananas(props: { game: Nightbloom }) {
+  const nodes: Array<NodeMirror | undefined> = [];
+  let visible = 0;
+  const sync = () => {
+    const shots = props.game.playerShots();
+    let nextVisible = 0;
+    const spin = props.game.fxTick() * 9;
+    for (let i = 0; i < shots.length && nextVisible < BANANA_POOL.length; i++) {
+      const shot = shots[i];
+      if (shot.kind !== "banana") continue;
+      const node = nodes[nextVisible];
+      hot.position(node, shot.x - FIELD.x0 - 7, shot.y - FIELD.y0 - 7);
+      hot.prop(node, "rotate", (spin + shot.id * 40) % 360);
+      hot.prop(node, "opacity", 1);
+      nextVisible++;
+    }
+    for (let i = nextVisible; i < visible; i++) hot.prop(nodes[i], "opacity", 0);
+    visible = nextVisible;
+  };
+  onFrame(sync);
+  return (
+    <For each={BANANA_POOL}>
+      {(i) => (
+        <Image
+          class="absolute left-0 top-0 w-[14] h-[14]"
+          src="shot-banana.png"
+          nodeRef={(node) => { nodes[i] = node; sync(); }}
+          style={{ opacity: 0 }}
+        />
+      )}
+    </For>
+  );
+}
+
 function PlayerShots(props: { game: Nightbloom; movers: MoverRegistry }) {
   if (!hot.supportsParticles()) {
     return <For each={props.game.playerShots()}>{(shot) => <PlayerShotNode shot={shot} movers={props.movers} />}</For>;
@@ -601,9 +745,7 @@ function PlayerShots(props: { game: Nightbloom; movers: MoverRegistry }) {
   return (
     <>
       <NativePlayerShotLayer game={props.game} />
-      <For each={props.game.playerShots().filter((shot) => shot.kind === "banana")}>
-        {(shot) => <PlayerShotNode shot={shot} movers={props.movers} />}
-      </For>
+      <NativeBananas game={props.game} />
     </>
   );
 }
@@ -699,18 +841,7 @@ function Field(props: { game: Nightbloom }) {
           <Text class="text-xs text-red-200 tracking-wide">{"SWITCH NOW  O / L / R   " + g.wiltSeconds() + "s"}</Text>
         </View>
       </Show>
-      <Show when={g.boss()} keyed>
-        {(b) => (
-          <View class="absolute left-1 right-1 top-1 flex-col gap-1">
-            <View class="h-1 rounded-sm bg-[#02061799]">
-              <View
-                class="h-1 rounded-sm bg-red-400 origin-left w-full"
-                style={{ scaleX: Math.max(0, b.hp() / b.def.phases[b.phase()].hp) }}
-              />
-            </View>
-          </View>
-        )}
-      </Show>
+      <BossHealth game={g} />
     </View>
   );
 }
@@ -725,14 +856,19 @@ function Field(props: { game: Nightbloom }) {
  *  still. Width is estimated from the glyph count. */
 function Marquee(props: { game: Nightbloom; text: string; cls: string; width: number }) {
   const textW = () => props.text.length * 7;
-  const scroll = () => {
-    if (textW() <= props.width) return 0;
+  let track: NodeMirror | undefined;
+  const sync = () => {
+    if (textW() <= props.width) {
+      hot.position(track, 0, 0);
+      return;
+    }
     const span = textW() + 24;
-    return -((props.game.fxTick() * 0.6) % span);
+    hot.position(track, -((props.game.fxTick() * 0.6) % span), 0);
   };
+  onFrame(sync);
   return (
     <View class="overflow-hidden" style={{ width: props.width, height: 16 }}>
-      <View class="flex-row gap-6" style={{ translateX: scroll() }}>
+      <View class="flex-row gap-6" nodeRef={(node) => { track = node; sync(); }}>
         <Text class={props.cls}>{props.text}</Text>
         <Show when={textW() > props.width}>
           <Text class={props.cls}>{props.text}</Text>
@@ -740,6 +876,78 @@ function Marquee(props: { game: Nightbloom; text: string; cls: string; width: nu
       </View>
     </View>
   );
+}
+
+function DeclarativeBossPanel(props: { game: Nightbloom }) {
+  const g = props.game;
+  return (
+    <Show when={g.boss()} keyed>
+      {(b) => (
+        <View class="flex-col gap-1 p-2 rounded-md border border-red-900 bg-[#020617aa]">
+          <Marquee game={g} text={b.def.name} cls="text-xs text-red-300 tracking-wide" width={102} />
+          <Marquee game={g} text={b.def.phases[b.phase()].card} cls="text-xs text-slate-300" width={102} />
+          <Text class="text-xs text-slate-500">{"TIMEOUT " + g.bossCardSeconds() + "s"}</Text>
+        </View>
+      )}
+    </Show>
+  );
+}
+
+function NativeBossPanel(props: { game: Nightbloom }) {
+  const g = props.game;
+  let root: NodeMirror | undefined;
+  let nameTrack: NodeMirror | undefined;
+  let nameText: NodeMirror | undefined;
+  let cardTrack: NodeMirror | undefined;
+  let cardText: NodeMirror | undefined;
+  let timeoutText: NodeMirror | undefined;
+  const ticker = (track: NodeMirror | undefined, text: string) => {
+    const width = text.length * 7;
+    hot.position(track, width <= 102 ? 0 : -((g.fxTick() * 0.6) % (width + 24)), 0);
+  };
+  const sync = () => {
+    const b = g.boss();
+    if (!b) {
+      hot.prop(root, "opacity", 0);
+      return;
+    }
+    const name = b.def.name;
+    const card = b.def.phases[b.phase()].card;
+    hot.text(nameText, name);
+    hot.text(cardText, card);
+    hot.text(timeoutText, `TIMEOUT ${g.bossCardSeconds()}s`);
+    if ((g.fxTick() & 1) === 0) {
+      ticker(nameTrack, name);
+      ticker(cardTrack, card);
+    }
+    hot.prop(root, "opacity", 1);
+  };
+  onFrame(sync);
+  return (
+    <View
+      class="flex-col gap-1 p-2 rounded-md border border-red-900 bg-[#020617aa]"
+      nodeRef={(node) => { root = node; sync(); }}
+      style={{ height: 62, opacity: 0 }}
+    >
+      <View class="overflow-hidden" style={{ width: 102, height: 16 }}>
+        <View nodeRef={(node) => (nameTrack = node)} style={{ width: 200, height: 16 }}>
+          <Text class="text-xs text-red-300 tracking-wide" nodeRef={(node) => (nameText = node)} style={{ width: 200, height: 16 }}>BOSS</Text>
+        </View>
+      </View>
+      <View class="overflow-hidden" style={{ width: 102, height: 16 }}>
+        <View nodeRef={(node) => (cardTrack = node)} style={{ width: 200, height: 16 }}>
+          <Text class="text-xs text-slate-300" nodeRef={(node) => (cardText = node)} style={{ width: 200, height: 16 }}>SPELL CARD</Text>
+        </View>
+      </View>
+      <Text class="text-xs text-slate-500" nodeRef={(node) => (timeoutText = node)} style={{ width: 102, height: 16 }}>TIMEOUT 0s</Text>
+    </View>
+  );
+}
+
+function BossPanel(props: { game: Nightbloom }) {
+  return hot.supportsParticles()
+    ? <NativeBossPanel game={props.game} />
+    : <DeclarativeBossPanel game={props.game} />;
 }
 
 function LeftPanel(props: { game: Nightbloom }) {
@@ -768,15 +976,7 @@ function LeftPanel(props: { game: Nightbloom }) {
           <Marquee game={g} text={g.augury()} cls="text-xs text-slate-400" width={102} />
         </View>
       </Show>
-      <Show when={g.boss()} keyed>
-        {(b) => (
-          <View class="flex-col gap-1 p-2 rounded-md border border-red-900 bg-[#020617aa]">
-            <Marquee game={g} text={b.def.name} cls="text-xs text-red-300 tracking-wide" width={102} />
-            <Marquee game={g} text={b.def.phases[b.phase()].card} cls="text-xs text-slate-300" width={102} />
-            <Text class="text-xs text-slate-500">{"TIMEOUT " + g.bossCardSeconds() + "s"}</Text>
-          </View>
-        )}
-      </Show>
+      <BossPanel game={g} />
       <View class="grow" />
       <Text class="text-xs text-slate-600">HOLD X FIRE  [] FOCUS</Text>
       <Text class="text-xs text-slate-600">{"O / L / R SWITCH  /\\ SPELL"}</Text>
