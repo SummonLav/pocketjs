@@ -23,7 +23,7 @@
 // gen-assets.ts. Every class is a FULL literal and all copy is ASCII (Inter
 // has no CJK).
 
-import { For, Show, onCleanup } from "solid-js";
+import { For, Show, createEffect, onCleanup } from "solid-js";
 import { Image, Screen, Text, View, type NodeMirror } from "@pocketjs/framework/components";
 import * as hot from "@pocketjs/framework/hot";
 import { onFrame } from "@pocketjs/framework/lifecycle";
@@ -48,7 +48,6 @@ import {
   STAMP_AT,
   STAMP_IMPACT,
   type EnemyShot,
-  type EnemyShotKind,
   type FloatFx,
   type FoeInst,
   type Nightbloom,
@@ -226,17 +225,27 @@ function NativeStarfield(props: { game: Nightbloom }) {
   let layer: NodeMirror | undefined;
   let lastTick = -2;
   const batch = hot.createParticleBatch(STARS.length);
+  const floats = batch.floats;
+  const words = batch.words;
+  for (let i = 0; i < STARS.length; i++) {
+    const at = i * 4;
+    floats[at + 2] = 4;
+    words[at + 3] = STARS[i].layer === 1 ? 0xff554133 : 0xff8b7464;
+  }
   const sync = () => {
     const tick = props.game.fxTick();
-    if (tick !== 0 && (tick & 1) !== 0) return;
+    // Stagger decorative/player batches opposite the enemy swarm so the
+    // interpreter never packs every layer on the same frame.
+    if (tick !== 0 && (tick & 1) === 0) return;
     if (tick === lastTick) return;
     lastTick = tick;
-    batch.reset();
-    for (const star of STARS) {
-      const y = (star.y + Math.floor(tick * (star.layer === 1 ? 0.35 : 0.7))) % FIELD.h;
-      batch.push(star.x, y, 4, star.layer === 1 ? 0xff554133 : 0xff8b7464);
+    for (let i = 0; i < STARS.length; i++) {
+      const star = STARS[i];
+      const at = i * 4;
+      floats[at] = star.x;
+      floats[at + 1] = (star.y + Math.floor(tick * (star.layer === 1 ? 0.35 : 0.7))) % FIELD.h;
     }
-    batch.flush(layer);
+    batch.flushCount(layer, STARS.length);
   };
   onFrame(sync);
   return (
@@ -257,7 +266,10 @@ function Starfield(props: { game: Nightbloom }) {
 
 function PlayerNode(props: { game: Nightbloom }) {
   const g = props.game;
+  const native = hot.supportsParticles();
   let playerNode: NodeMirror | undefined;
+  let playerImage: NodeMirror | undefined;
+  let nativeAvatarSize = AVATAR_SIZE[0];
   const sprite = () => {
     const p = g.active();
     return PLANTS[p.kind].sprites[p.stage() - 1];
@@ -272,13 +284,28 @@ function PlayerNode(props: { game: Nightbloom }) {
   };
   /** Lean into the strafe, danmaku-style. */
   const lean = () => g.lastDx() * 9;
+  const syncAppearance = () => {
+    if (!native) return;
+    const p = g.active();
+    nativeAvatarSize = AVATAR_SIZE[p.stage() - 1];
+    hot.prop(playerNode, "width", nativeAvatarSize);
+    hot.prop(playerNode, "height", nativeAvatarSize);
+    hot.prop(playerNode, "rotate", lean());
+    hot.image(playerImage, PLANTS[p.kind].sprites[p.stage() - 1]);
+    hot.prop(playerImage, "scaleX", g.facing() * PLANTS[p.kind].artFacing);
+  };
+  if (native) createEffect(syncAppearance);
   const syncPosition = () => {
-    const avatarSize = size();
+    const avatarSize = native ? nativeAvatarSize : size();
     hot.position(
       playerNode,
       g.px() - FIELD.x0 - avatarSize / 2,
       g.py() - FIELD.y0 - avatarSize / 2 + bob(),
     );
+    // Mercy-invuln blink rides the same imperative sync: while invulnerable
+    // it flips every 4 ticks, and a Solid style binding would re-evaluate
+    // the whole style object per frame for the entire window.
+    hot.prop(playerNode, "opacity", blink() ? 1 : 0.35);
   };
   onFrame(syncPosition);
   return (
@@ -287,16 +314,24 @@ function PlayerNode(props: { game: Nightbloom }) {
       class="absolute left-0 top-0 items-center justify-center"
       nodeRef={(node) => {
         playerNode = node;
+        syncAppearance();
         syncPosition();
       }}
       style={{
-        width: size(),
-        height: size(),
-        rotate: lean(),
-        opacity: blink() ? 1 : 0.35,
+        width: native ? AVATAR_SIZE[0] : size(),
+        height: native ? AVATAR_SIZE[0] : size(),
+        rotate: native ? 0 : lean(),
       }}
     >
-      <Image class="w-full h-full" src={sprite()} style={{ scaleX: g.facing() * PLANTS[g.active().kind].artFacing }} />
+      <Image
+        class="w-full h-full"
+        src={native ? "p-catnip-1.png" : sprite()}
+        nodeRef={(node) => {
+          playerImage = node;
+          syncAppearance();
+        }}
+        style={{ scaleX: native ? 1 : g.facing() * PLANTS[g.active().kind].artFacing }}
+      />
       <Show when={g.focus()}>
         <View class="absolute w-1 h-1 rounded-full bg-white" style={{ insetL: size() / 2 - 2, insetT: size() / 2 - 2 }} />
       </Show>
@@ -381,6 +416,7 @@ interface FoeSlot {
   root?: NodeMirror;
   image?: NodeMirror;
   hp?: NodeMirror;
+  foeId?: number;
 }
 
 /** PSP keeps foe structure stable across waves. Spawning, death, and escape
@@ -395,12 +431,18 @@ function NativeFoes(props: { game: Nightbloom; movers: MoverRegistry }) {
       const slot = slots[i];
       const foe = foes[i];
       const def = FOES[foe.kind];
-      hot.image(slot.image, def.sprites[foe.stage - 1]);
+      if (slot.foeId !== foe.id) {
+        slot.foeId = foe.id;
+        hot.image(slot.image, def.sprites[foe.stage - 1]);
+        hot.prop(slot.root, "opacity", 1);
+      }
       hot.position(slot.root, foe.x - FIELD.x0 - 13, foe.y - FIELD.y0 - 13);
       hot.prop(slot.hp, "scaleX", Math.max(0, foe.hp() / def.hp[foe.stage - 1]));
-      hot.prop(slot.root, "opacity", 1);
     }
-    for (let i = nextVisible; i < visible; i++) hot.prop(slots[i].root, "opacity", 0);
+    for (let i = nextVisible; i < visible; i++) {
+      slots[i].foeId = undefined;
+      hot.prop(slots[i].root, "opacity", 0);
+    }
     visible = nextVisible;
   };
   onFrame(sync);
@@ -495,25 +537,42 @@ function NativeBossNode(props: { game: Nightbloom }) {
   let root: NodeMirror | undefined;
   let image: NodeMirror | undefined;
   let flash: NodeMirror | undefined;
+  let visible = false;
+  let sprite = "";
+  let flashVisible = false;
   const sync = () => {
     const b = g.boss();
     if (!b) {
-      hot.prop(root, "opacity", 0);
-      hot.prop(flash, "opacity", 0);
+      if (visible) {
+        visible = false;
+        hot.prop(root, "opacity", 0);
+      }
+      if (flashVisible) {
+        flashVisible = false;
+        hot.prop(flash, "opacity", 0);
+      }
       return;
     }
     const phase = b.def.phases[b.phase()];
     const age = g.fxTick() - g.bossFlash();
     const morph = age >= 0 && age < 24 ? age / 24 : -1;
     const pulse = morph >= 0 ? 1.45 - morph * 0.45 : 1;
-    hot.image(image, phase.sprite);
+    if (sprite !== phase.sprite) {
+      sprite = phase.sprite;
+      hot.image(image, sprite);
+    }
     hot.position(root, b.x - FIELD.x0 - MAX_BOSS_SIZE / 2, b.y - FIELD.y0 - MAX_BOSS_SIZE / 2);
     hot.prop(root, "scale", phase.size / MAX_BOSS_SIZE * pulse);
-    hot.prop(root, "opacity", 1);
+    if (!visible) {
+      visible = true;
+      hot.prop(root, "opacity", 1);
+    }
     if (morph >= 0) {
+      flashVisible = true;
       hot.prop(flash, "scale", (20 + morph * 70) / 80);
       hot.prop(flash, "opacity", 1 - morph);
-    } else {
+    } else if (flashVisible) {
+      flashVisible = false;
       hot.prop(flash, "opacity", 0);
     }
   };
@@ -525,7 +584,15 @@ function NativeBossNode(props: { game: Nightbloom }) {
       nodeRef={(node) => { root = node; sync(); }}
       style={{ opacity: 0 }}
     >
-      <Image class="w-full h-full" src="boss-kasa.png" nodeRef={(node) => (image = node)} />
+      <Image
+        class="w-full h-full"
+        src="boss-kasa.png"
+        nodeRef={(node) => {
+          image = node;
+          sprite = "";
+          sync();
+        }}
+      />
       <View
         class="absolute w-[80] h-[80] border-2 border-pink-300"
         nodeRef={(node) => (flash = node)}
@@ -559,14 +626,21 @@ function DeclarativeBossHealth(props: { game: Nightbloom }) {
 function NativeBossHealth(props: { game: Nightbloom }) {
   let root: NodeMirror | undefined;
   let fill: NodeMirror | undefined;
+  let visible = false;
   const sync = () => {
     const b = props.game.boss();
     if (!b) {
-      hot.prop(root, "opacity", 0);
+      if (visible) {
+        visible = false;
+        hot.prop(root, "opacity", 0);
+      }
       return;
     }
     hot.prop(fill, "scaleX", Math.max(0, b.hp / b.def.phases[b.phase()].hp));
-    hot.prop(root, "opacity", 1);
+    if (!visible) {
+      visible = true;
+      hot.prop(root, "opacity", 1);
+    }
   };
   onFrame(sync);
   return (
@@ -612,29 +686,39 @@ function EnemyShotNode(props: { shot: EnemyShot; movers: MoverRegistry }) {
   );
 }
 
-/** ABGR colors matching the fallback Tailwind fills. Mochi becomes a native
- *  white dot on PSP so every trajectory fits one compact RECT batch. */
-const ENEMY_SHOT_COLORS: Record<EnemyShotKind, number> = {
-  pink: 0xffd4a8f9,
-  cyan: 0xfff9e867,
-  amber: 0xff4dd3fc,
-  mochi: 0xffffffff,
-};
-
 /** PSP: one retained node + one packed host call per frame. Other hosts keep
  *  the declarative nodes so browser rendering and deterministic tests need no
- *  new host capability. */
+ *  new host capability. The fill loop writes the packed batch directly —
+ *  at 48 bullets a push() closure call per particle is measurable QuickJS
+ *  time on the hottest frames the game produces. */
 function NativeEnemyShotLayer(props: { game: Nightbloom }) {
   let layer: NodeMirror | undefined;
   const batch = hot.createParticleBatch(MAX_ENEMY_SHOTS);
+  const floats = batch.floats;
+  const words = batch.words;
+  const offX = FIELD.x0 + 4;
+  const offY = FIELD.y0 + 4;
+  for (let i = 0; i < batch.capacity; i++) floats[i * 4 + 2] = 8;
+  let lastTick = -1;
   const sync = () => {
+    const tick = props.game.fxTick();
+    // The slowest boss bullets move < 1 px per simulation tick. Repainting
+    // their retained batch at 30 Hz halves typed-array traffic while keeping
+    // collision and simulation on the exact 60 Hz grid.
+    if (tick !== 0 && (tick & 1) !== 0) return;
+    if (tick === lastTick) return;
+    lastTick = tick;
     const shots = props.game.enemyShots();
-    batch.reset();
-    for (let i = 0; i < shots.length; i++) {
+    let n = shots.length;
+    if (n > batch.capacity) n = batch.capacity;
+    for (let i = 0; i < n; i++) {
       const shot = shots[i];
-      batch.push(shot.x - FIELD.x0 - 4, shot.y - FIELD.y0 - 4, 8, ENEMY_SHOT_COLORS[shot.kind]);
+      const at = i * 4;
+      floats[at] = shot.x - offX;
+      floats[at + 1] = shot.y - offY;
+      words[at + 3] = shot.color;
     }
-    batch.flush(layer);
+    batch.flushCount(layer, n);
   };
   onFrame(sync);
   return (
@@ -679,15 +763,32 @@ function PlayerShotNode(props: { shot: PlayerShot; movers: MoverRegistry }) {
 function NativePlayerShotLayer(props: { game: Nightbloom }) {
   let layer: NodeMirror | undefined;
   const batch = hot.createParticleBatch(28);
+  const floats = batch.floats;
+  const words = batch.words;
+  const offX = FIELD.x0 + 6;
+  const offY = FIELD.y0 + 6;
+  for (let i = 0; i < batch.capacity; i++) {
+    const at = i * 4;
+    floats[at + 2] = 12;
+    words[at + 3] = 0xffd4a8f9;
+  }
+  let lastTick = -1;
   const sync = () => {
+    const tick = props.game.fxTick();
+    if (tick !== 0 && (tick & 1) === 0) return;
+    if (tick === lastTick) return;
+    lastTick = tick;
     const shots = props.game.playerShots();
-    batch.reset();
-    for (let i = 0; i < shots.length; i++) {
+    let n = 0;
+    for (let i = 0; i < shots.length && n < batch.capacity; i++) {
       const shot = shots[i];
       if (shot.kind === "banana") continue;
-      batch.push(shot.x - FIELD.x0 - 6, shot.y - FIELD.y0 - 6, 12, 0xffd4a8f9);
+      const at = n * 4;
+      floats[at] = shot.x - offX;
+      floats[at + 1] = shot.y - offY;
+      n++;
     }
-    batch.flush(layer);
+    batch.flushCount(layer, n);
   };
   onFrame(sync);
   return (
@@ -764,14 +865,31 @@ function MoteNode(props: { mote: MovingEntity; movers: MoverRegistry }) {
 function NativeMotes(props: { game: Nightbloom }) {
   let layer: NodeMirror | undefined;
   const batch = hot.createParticleBatch(MAX_MOTES);
+  const floats = batch.floats;
+  const words = batch.words;
+  const offX = FIELD.x0 + 3;
+  const offY = FIELD.y0 + 3;
+  for (let i = 0; i < batch.capacity; i++) {
+    const at = i * 4;
+    floats[at + 2] = 6;
+    words[at + 3] = 0xff7dd3fc;
+  }
+  let lastTick = -1;
   const sync = () => {
+    const tick = props.game.fxTick();
+    if (tick !== 0 && (tick & 1) === 0) return;
+    if (tick === lastTick) return;
+    lastTick = tick;
     const motes = props.game.motes();
-    batch.reset();
-    for (let i = 0; i < motes.length; i++) {
+    let n = motes.length;
+    if (n > batch.capacity) n = batch.capacity;
+    for (let i = 0; i < n; i++) {
       const mote = motes[i];
-      batch.push(mote.x - FIELD.x0 - 3, mote.y - FIELD.y0 - 3, 6, 0xff7dd3fc);
+      const at = i * 4;
+      floats[at] = mote.x - offX;
+      floats[at + 1] = mote.y - offY;
     }
-    batch.flush(layer);
+    batch.flushCount(layer, n);
   };
   onFrame(sync);
   return <View debugName="MoteLayer" class="absolute inset-0" nodeRef={(node) => { layer = node; sync(); }} />;
@@ -799,6 +917,79 @@ function FxNode(props: { game: Nightbloom; fx: FloatFx }) {
       <Text class={cls()}>{props.fx.text}</Text>
     </View>
   );
+}
+
+const FX_POOL = [0, 1, 2, 3] as const;
+
+/** ABGR tone colors matching the declarative classes (amber/cyan/pink/red 300). */
+const FX_TONE_COLORS: Record<FloatFx["tone"], number> = {
+  lumen: 0xff4dd3fc,
+  ward: 0xfff9e867,
+  evolve: 0xffd4a8f9,
+  hurt: 0xffa5a5fc,
+};
+
+interface FxSlot {
+  root?: NodeMirror;
+  text?: NodeMirror;
+  fxId?: number;
+}
+
+/** PSP: float fx ("-13", "UP!") repaint four pre-mounted fixed-cell slots.
+ *  Mounting one through Solid costs a structural frame AND its text shape
+ *  costs a relayout — the frame trace shows each player hit as TWO ~85 ms
+ *  frames (fx mount, then its unmount 0.9 s later) without this pool. */
+function NativeFxLayer(props: { game: Nightbloom }) {
+  const g = props.game;
+  const slots: FxSlot[] = FX_POOL.map(() => ({}));
+  let visible = 0;
+  const sync = () => {
+    const fxs = g.fxs();
+    const n = Math.min(fxs.length, slots.length);
+    if (n === 0 && visible === 0) return;
+    const tick = g.fxTick();
+    for (let i = 0; i < n; i++) {
+      const fx = fxs[i];
+      const slot = slots[i];
+      const age = Math.min(1, Math.max(0, (tick - fx.born) / FX_LIFE));
+      if (slot.fxId !== fx.id) {
+        slot.fxId = fx.id;
+        hot.text(slot.text, fx.text);
+        hot.prop(slot.text, "textColor", FX_TONE_COLORS[fx.tone]);
+      }
+      hot.position(slot.root, fx.x - FIELD.x0 - 24, fx.y - FIELD.y0 - 12 * age);
+      hot.prop(slot.root, "opacity", 1 - age);
+    }
+    for (let i = n; i < visible; i++) {
+      slots[i].fxId = undefined;
+      hot.prop(slots[i].root, "opacity", 0);
+    }
+    visible = n;
+  };
+  onFrame(sync);
+  return (
+    <For each={FX_POOL}>
+      {(i) => (
+        <View
+          class="absolute left-0 top-0 items-center"
+          nodeRef={(node) => (slots[i].root = node)}
+          style={{ opacity: 0, width: 48, height: 14 }}
+        >
+          <Text
+            class="text-xs text-red-300 font-bold text-center"
+            nodeRef={(node) => (slots[i].text = node)}
+            style={{ width: 48, height: 14 }}
+          >-</Text>
+        </View>
+      )}
+    </For>
+  );
+}
+
+function FxLayer(props: { game: Nightbloom }) {
+  return hot.supportsParticles()
+    ? <NativeFxLayer game={props.game} />
+    : <For each={props.game.fxs()}>{(f) => <FxNode game={props.game} fx={f} />}</For>;
 }
 
 function Field(props: { game: Nightbloom }) {
@@ -831,7 +1022,7 @@ function Field(props: { game: Nightbloom }) {
       <PlayerShots game={g} movers={movers} />
       <PlayerNode game={g} />
       <EnemyShots game={g} movers={movers} />
-      <For each={g.fxs()}>{(f) => <FxNode game={g} fx={f} />}</For>
+      <FxLayer game={g} />
       <Show when={g.wilting()}>
         <View
           class="absolute left-0 right-0 flex-col items-center gap-1"
@@ -901,26 +1092,51 @@ function NativeBossPanel(props: { game: Nightbloom }) {
   let cardTrack: NodeMirror | undefined;
   let cardText: NodeMirror | undefined;
   let timeoutText: NodeMirror | undefined;
-  const ticker = (track: NodeMirror | undefined, text: string) => {
-    const width = text.length * 7;
+  const ticker = (track: NodeMirror | undefined, width: number) => {
     hot.position(track, width <= 102 ? 0 : -((g.fxTick() * 0.6) % (width + 24)), 0);
   };
+  let lastTimeout = -1;
+  let lastName = "";
+  let lastCard = "";
+  let nameWidth = 0;
+  let cardWidth = 0;
+  let visible = false;
   const sync = () => {
     const b = g.boss();
     if (!b) {
-      hot.prop(root, "opacity", 0);
+      if (visible) {
+        visible = false;
+        hot.prop(root, "opacity", 0);
+      }
       return;
     }
     const name = b.def.name;
     const card = b.def.phases[b.phase()].card;
-    hot.text(nameText, name);
-    hot.text(cardText, card);
-    hot.text(timeoutText, `TIMEOUT ${g.bossCardSeconds()}s`);
-    if ((g.fxTick() & 1) === 0) {
-      ticker(nameTrack, name);
-      ticker(cardTrack, card);
+    if (name !== lastName) {
+      lastName = name;
+      nameWidth = name.length * 7;
+      hot.text(nameText, name);
     }
-    hot.prop(root, "opacity", 1);
+    if (card !== lastCard) {
+      lastCard = card;
+      cardWidth = card.length * 7;
+      hot.text(cardText, card);
+    }
+    // Gate on the integer BEFORE building the string: hot.text's own gate
+    // would still cook a fresh template literal every frame.
+    const timeoutS = g.bossCardSeconds();
+    if (timeoutS !== lastTimeout) {
+      lastTimeout = timeoutS;
+      hot.text(timeoutText, `TIMEOUT ${timeoutS}s`);
+    }
+    if ((g.fxTick() & 1) === 0) {
+      ticker(nameTrack, nameWidth);
+      ticker(cardTrack, cardWidth);
+    }
+    if (!visible) {
+      visible = true;
+      hot.prop(root, "opacity", 1);
+    }
   };
   onFrame(sync);
   return (
@@ -950,6 +1166,41 @@ function BossPanel(props: { game: Nightbloom }) {
     : <DeclarativeBossPanel game={props.game} />;
 }
 
+function DeclarativeNightClock(props: { game: Nightbloom }) {
+  return <Text class="text-xs text-slate-400">{String(props.game.second()) + "s TO DAWN?"}</Text>;
+}
+
+/** A fixed native cell keeps the once-per-second clock repaint out of layout.
+ *  Without it each second boundary adds a repeatable 3.5 ms core-tick spike. */
+function NativeNightClock(props: { game: Nightbloom }) {
+  let node: NodeMirror | undefined;
+  let lastSecond = -1;
+  const sync = () => {
+    const second = props.game.second();
+    if (second === lastSecond) return;
+    lastSecond = second;
+    hot.text(node, `${second}s TO DAWN?`);
+  };
+  onFrame(sync);
+  return (
+    <Text
+      class="text-xs text-slate-400"
+      nodeRef={(next) => {
+        node = next;
+        lastSecond = -1;
+        sync();
+      }}
+      style={{ width: 102, height: 16 }}
+    >0s TO DAWN?</Text>
+  );
+}
+
+function NightClock(props: { game: Nightbloom }) {
+  return hot.supportsParticles()
+    ? <NativeNightClock game={props.game} />
+    : <DeclarativeNightClock game={props.game} />;
+}
+
 function LeftPanel(props: { game: Nightbloom }) {
   const g = props.game;
   const phaseName = () => {
@@ -968,7 +1219,7 @@ function LeftPanel(props: { game: Nightbloom }) {
       <View class="flex-col gap-1 mt-2 p-2 rounded-md border border-slate-800 bg-[#020617aa]">
         <Text class="text-xs text-violet-300 tracking-wide">{phaseName()}</Text>
         <Text class="text-xs text-slate-400">{"WAVE " + g.waveIdx() + "/" + WAVES.length}</Text>
-        <Text class="text-xs text-slate-400">{String(g.second()) + "s TO DAWN?"}</Text>
+        <NightClock game={g} />
       </View>
       <Show when={g.augury() !== ""}>
         <View class="flex-col gap-1 p-2 rounded-md border border-violet-900 bg-[#020617aa]">
@@ -1004,9 +1255,13 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
   const g = props.game;
   const p = props.plant;
   const def = PLANTS[p.kind];
+  const native = hot.supportsParticles();
+  let root: NodeMirror | undefined;
+  let hpFill: NodeMirror | undefined;
   const isActive = () => g.activeIdx() === props.idx;
   const wilted = () => p.hp() <= 0;
   const cardClass = () => {
+    if (native) return "relative flex-row items-center gap-1 p-1 rounded-md border border-slate-700 bg-slate-900 overflow-hidden";
     if (wilted()) return "relative flex-row items-center gap-1 p-1 rounded-md border border-slate-800 bg-slate-900 opacity-40 overflow-hidden";
     if (isActive() && g.wilting()) return "relative flex-row items-center gap-1 p-1 rounded-md border border-red-400 bg-slate-800 overflow-hidden";
     if (isActive()) return "relative flex-row items-center gap-1 p-1 rounded-md border border-amber-300 bg-slate-800 overflow-hidden";
@@ -1019,6 +1274,27 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
     const age = g.fxTick() - at;
     return age >= 0 && age < 48 ? age / 48 : -1;
   };
+  let lastState = "";
+  let lastHp = -1;
+  const syncNativeRoster = () => {
+    if (native) {
+      const hp = p.hp();
+      const active = isActive();
+      const state = hp <= 0 ? "wilted" : active && g.wilting() ? "danger" : active ? "active" : "idle";
+      if (state !== lastState) {
+        lastState = state;
+        hot.prop(root, "opacity", state === "wilted" ? 0.4 : 1);
+        hot.prop(root, "borderColor", state === "danger" ? 0xff7171f8 : state === "active" ? 0xff4dd3fc : 0xff554133);
+        hot.prop(root, "bgColor", state === "danger" || state === "active" ? 0xff3b291e : 0xff2a170f);
+      }
+      const scale = Math.max(0, hp / def.hp[p.stage() - 1]);
+      if (scale !== lastHp) {
+        lastHp = scale;
+        hot.prop(hpFill, "scaleX", scale);
+      }
+    }
+  };
+  if (native) createEffect(syncNativeRoster);
   return (
     <Show
       when={p.unlocked()}
@@ -1034,7 +1310,14 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
         </View>
       }
     >
-    <View class={cardClass()}>
+    <View
+      class={cardClass()}
+      nodeRef={(node) => {
+        root = node;
+        lastState = "";
+        syncNativeRoster();
+      }}
+    >
       <Show when={reveal() >= 0}>
         <View class="absolute inset-0 rounded-md overflow-hidden">
           {/* the slanted shine head */}
@@ -1072,15 +1355,157 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
           </View>
         </View>
         <View class="h-1 rounded-sm bg-[#02061799]">
-          <View
-            class="h-1 rounded-sm bg-emerald-400 origin-left w-full"
-            style={{ scaleX: Math.max(0, p.hp() / def.hp[p.stage() - 1]) }}
-          />
+          {native ? (
+            <View
+              class="h-1 rounded-sm bg-emerald-400 origin-left w-full"
+              nodeRef={(node) => {
+                hpFill = node;
+                lastHp = -1;
+                syncNativeRoster();
+              }}
+            />
+          ) : (
+            <View
+              class="h-1 rounded-sm bg-emerald-400 origin-left w-full"
+              style={{ scaleX: Math.max(0, p.hp() / def.hp[p.stage() - 1]) }}
+            />
+          )}
         </View>
       </View>
     </View>
     </Show>
   );
+}
+
+/** Score + graze counters. On PSP these change on nearly every boss-window
+ *  frame (graze pays +10 a bullet), and a Solid text binding per change costs
+ *  effect + relayout; fixed-size right-aligned cells + hot.text keep every
+ *  update paint-only. Other hosts keep the declarative texts. */
+function DeclarativeScoreboard(props: { game: Nightbloom }) {
+  const g = props.game;
+  return (
+    <>
+      <View class="flex-row justify-between items-end">
+        <Text class="text-xs text-slate-500 tracking-wide">SCORE</Text>
+        <Text class="text-sm text-amber-200 font-bold">{String(g.score())}</Text>
+      </View>
+      <View class="flex-row justify-between items-end">
+        <Text class="text-xs text-slate-500 tracking-wide">GRAZE</Text>
+        <Text class="text-xs text-cyan-300">{String(g.graze())}</Text>
+      </View>
+    </>
+  );
+}
+
+function NativeScoreboard(props: { game: Nightbloom }) {
+  let scoreText: NodeMirror | undefined;
+  let grazeText: NodeMirror | undefined;
+  let lastScore = -1;
+  let lastGraze = -1;
+  const sync = () => {
+    const score = props.game.score();
+    const graze = props.game.graze();
+    if (score !== lastScore) {
+      lastScore = score;
+      hot.text(scoreText, score);
+    }
+    if (graze !== lastGraze) {
+      lastGraze = graze;
+      hot.text(grazeText, graze);
+    }
+  };
+  onFrame(sync);
+  return (
+    <>
+      <View class="flex-row justify-between items-end">
+        <Text class="text-xs text-slate-500 tracking-wide">SCORE</Text>
+        <Text
+          class="text-sm text-amber-200 font-bold text-right"
+          nodeRef={(node) => { scoreText = node; sync(); }}
+          style={{ width: 66, height: 18 }}
+        >0</Text>
+      </View>
+      <View class="flex-row justify-between items-end">
+        <Text class="text-xs text-slate-500 tracking-wide">GRAZE</Text>
+        <Text
+          class="text-xs text-cyan-300 text-right"
+          nodeRef={(node) => (grazeText = node)}
+          style={{ width: 48, height: 16 }}
+        >0</Text>
+      </View>
+    </>
+  );
+}
+
+function Scoreboard(props: { game: Nightbloom }) {
+  return hot.supportsParticles()
+    ? <NativeScoreboard game={props.game} />
+    : <DeclarativeScoreboard game={props.game} />;
+}
+
+/** The spell-card box. spellReady ticks EVERY battle tick while a cooldown
+ *  drains; the native variant repaints the arc through hot.prop quantized to
+ *  45 steps (one paint-only op every ~half second) instead of a per-frame
+ *  Solid style re-evaluation. */
+function DeclarativeSpellBox(props: { game: Nightbloom }) {
+  const g = props.game;
+  return (
+    <View class="flex-row items-center gap-2 p-1 rounded-md border border-slate-800 bg-[#020617aa]">
+      <View
+        class="w-4 h-4 bg-amber-300"
+        style={{ arcStart: 0, arcSweep: Math.max(8, g.active().spellReady() * 360), arcWidth: 2 }}
+      />
+      <View class="flex-col">
+        <Text class="text-xs text-amber-200 tracking-wide">{PLANTS[g.active().kind].spell.name}</Text>
+        <Text class="text-xs text-slate-500">{g.active().spellReady() >= 1 ? "READY" : "CHARGING"}</Text>
+      </View>
+    </View>
+  );
+}
+
+function NativeSpellBox(props: { game: Nightbloom }) {
+  const g = props.game;
+  let arc: NodeMirror | undefined;
+  let stateText: NodeMirror | undefined;
+  let lastSweep = -1;
+  let lastReady: boolean | undefined;
+  const sync = () => {
+    const ready = g.active().spellReady();
+    const sweep = ready >= 1 ? 360 : Math.max(8, Math.round(ready * 45) * 8);
+    const isReady = ready >= 1;
+    if (sweep !== lastSweep) {
+      lastSweep = sweep;
+      hot.prop(arc, "arcSweep", sweep);
+    }
+    if (isReady !== lastReady) {
+      lastReady = isReady;
+      hot.text(stateText, isReady ? "READY" : "CHARGING");
+    }
+  };
+  onFrame(sync);
+  return (
+    <View class="flex-row items-center gap-2 p-1 rounded-md border border-slate-800 bg-[#020617aa]">
+      <View
+        class="w-4 h-4 bg-amber-300"
+        nodeRef={(node) => { arc = node; sync(); }}
+        style={{ arcStart: 0, arcSweep: 360, arcWidth: 2 }}
+      />
+      <View class="flex-col">
+        <Text class="text-xs text-amber-200 tracking-wide">{PLANTS[g.active().kind].spell.name}</Text>
+        <Text
+          class="text-xs text-slate-500"
+          nodeRef={(node) => (stateText = node)}
+          style={{ width: 66, height: 16 }}
+        >READY</Text>
+      </View>
+    </View>
+  );
+}
+
+function SpellBox(props: { game: Nightbloom }) {
+  return hot.supportsParticles()
+    ? <NativeSpellBox game={props.game} />
+    : <DeclarativeSpellBox game={props.game} />;
 }
 
 function RightPanel(props: { game: Nightbloom }) {
@@ -1091,47 +1516,94 @@ function RightPanel(props: { game: Nightbloom }) {
       class="absolute flex-col gap-1 px-2 py-2"
       style={{ insetL: PANEL_R.x0, insetT: 0, width: PANEL_R.w, height: 272 }}
     >
-      <View class="flex-row justify-between items-end">
-        <Text class="text-xs text-slate-500 tracking-wide">SCORE</Text>
-        <Text class="text-sm text-amber-200 font-bold">{String(g.score())}</Text>
-      </View>
-      <View class="flex-row justify-between items-end">
-        <Text class="text-xs text-slate-500 tracking-wide">GRAZE</Text>
-        <Text class="text-xs text-cyan-300">{String(g.graze())}</Text>
-      </View>
+      <Scoreboard game={g} />
       <View class="flex-col gap-1 pt-1">
         <For each={g.roster}>{(p, i) => <RosterCard game={g} idx={i()} plant={p} />}</For>
       </View>
       <View class="grow" />
-      <Show when={g.active().kind === "primrose"}>
-        <View class="flex-row items-center gap-1 p-1 rounded-md border border-slate-800 bg-[#020617aa]">
-          <Text class="text-xs text-slate-500 tracking-wide">BANANAS</Text>
-          <For each={[0, 1, 2]}>
-            {(i) => (
-              <Image
-                class="w-[12] h-[12]"
-                src="shot-banana.png"
-                style={{ opacity: g.playerShots().filter((sh) => sh.kind === "banana").length > i ? 0.25 : 1 }}
-              />
-            )}
-          </For>
-        </View>
-      </Show>
-      <View class="flex-row items-center gap-2 p-1 rounded-md border border-slate-800 bg-[#020617aa]">
-        <View
-          class="w-4 h-4 bg-amber-300"
-          style={{ arcStart: 0, arcSweep: Math.max(8, g.active().spellReady() * 360), arcWidth: 2 }}
-        />
-        <View class="flex-col">
-          <Text class="text-xs text-amber-200 tracking-wide">{PLANTS[g.active().kind].spell.name}</Text>
-          <Text class="text-xs text-slate-500">{g.active().spellReady() >= 1 ? "READY" : "CHARGING"}</Text>
-        </View>
-      </View>
+      <BananaBadge game={g} />
+      <SpellBox game={g} />
     </View>
   );
 }
 
-function ToastStack(props: { game: Nightbloom }) {
+function DeclarativeBananaBadge(props: { game: Nightbloom }) {
+  const g = props.game;
+  return (
+    <Show when={g.active().kind === "primrose"}>
+      <View class="flex-row items-center gap-1 p-1 rounded-md border border-slate-800 bg-[#020617aa]">
+        <Text class="text-xs text-slate-500 tracking-wide">BANANAS</Text>
+        <For each={[0, 1, 2]}>
+          {(i) => (
+            <Image
+              class="w-[12] h-[12]"
+              src="shot-banana.png"
+              style={{ opacity: g.playerShots().filter((sh) => sh.kind === "banana").length > i ? 0.25 : 1 }}
+            />
+          )}
+        </For>
+      </View>
+    </Show>
+  );
+}
+
+/** PSP: the badge stays mounted and toggles opacity — a form switch must not
+ *  pay a subtree mount (the structural-frame hitch) for a HUD ornament. The
+ *  hand count repaints through the same sync. */
+function NativeBananaBadge(props: { game: Nightbloom }) {
+  const g = props.game;
+  let root: NodeMirror | undefined;
+  const icons: Array<NodeMirror | undefined> = [];
+  let visible = false;
+  let lastAloft = -1;
+  const sync = () => {
+    if (g.active().kind !== "primrose") {
+      if (visible) {
+        visible = false;
+        hot.prop(root, "opacity", 0);
+      }
+      return;
+    }
+    if (!visible) {
+      visible = true;
+      hot.prop(root, "opacity", 1);
+    }
+    const shots = g.playerShots();
+    let aloft = 0;
+    for (let i = 0; i < shots.length; i++) if (shots[i].kind === "banana") aloft++;
+    if (aloft !== lastAloft) {
+      lastAloft = aloft;
+      for (let i = 0; i < 3; i++) hot.prop(icons[i], "opacity", aloft > i ? 0.25 : 1);
+    }
+  };
+  onFrame(sync);
+  return (
+    <View
+      class="flex-row items-center gap-1 p-1 rounded-md border border-slate-800 bg-[#020617aa]"
+      nodeRef={(node) => { root = node; sync(); }}
+      style={{ opacity: 0 }}
+    >
+      <Text class="text-xs text-slate-500 tracking-wide">BANANAS</Text>
+      <For each={[0, 1, 2]}>
+        {(i) => (
+          <Image
+            class="w-[12] h-[12]"
+            src="shot-banana.png"
+            nodeRef={(node) => (icons[i] = node)}
+          />
+        )}
+      </For>
+    </View>
+  );
+}
+
+function BananaBadge(props: { game: Nightbloom }) {
+  return hot.supportsParticles()
+    ? <NativeBananaBadge game={props.game} />
+    : <DeclarativeBananaBadge game={props.game} />;
+}
+
+function DeclarativeToastStack(props: { game: Nightbloom }) {
   return (
     <View debugName="Toasts" class="absolute flex-col items-center gap-1" style={{ insetL: FIELD.x0, insetT: 24, width: FIELD.w }}>
       <For each={props.game.toasts()}>
@@ -1143,6 +1615,64 @@ function ToastStack(props: { game: Nightbloom }) {
       </For>
     </View>
   );
+}
+
+const TOAST_POOL = [0, 1, 2] as const;
+
+interface ToastSlot {
+  root?: NodeMirror;
+  text?: NodeMirror;
+}
+
+/** PSP: toasts land in three pre-mounted slots on a fixed 26 px pitch, with
+ *  FIXED-SIZE text cells. Both halves matter: mounting a toast box through
+ *  Solid is a structural frame, and swapping text in an auto-sized cell
+ *  dirties layout — the frame trace shows that relayout as a ~50 ms core
+ *  tick on hardware, fired by the player's core verbs (switch, spell). */
+function NativeToastStack(props: { game: Nightbloom }) {
+  const slots: ToastSlot[] = TOAST_POOL.map(() => ({}));
+  let visible = 0;
+  let lastToasts: readonly unknown[] | undefined;
+  const sync = () => {
+    const toasts = props.game.toasts();
+    if (toasts === lastToasts) return;
+    lastToasts = toasts;
+    const n = Math.min(toasts.length, slots.length);
+    for (let i = 0; i < n; i++) {
+      hot.text(slots[i].text, toasts[i].text);
+      hot.prop(slots[i].root, "opacity", 1);
+    }
+    for (let i = n; i < visible; i++) hot.prop(slots[i].root, "opacity", 0);
+    visible = n;
+  };
+  onFrame(sync);
+  return (
+    <View debugName="Toasts" class="absolute" style={{ insetL: FIELD.x0, insetT: 24, width: FIELD.w }}>
+      <For each={TOAST_POOL}>
+        {(i) => (
+          <View class="absolute left-0 right-0 items-center" style={{ insetT: i * 26 }}>
+            <View
+              class="px-2 py-1 rounded-sm bg-[#0f172acc] border border-violet-800"
+              nodeRef={(node) => (slots[i].root = node)}
+              style={{ opacity: 0 }}
+            >
+              <Text
+                class="text-xs text-violet-200 tracking-wide text-center"
+                nodeRef={(node) => (slots[i].text = node)}
+                style={{ width: 184, height: 16 }}
+              >{" "}</Text>
+            </View>
+          </View>
+        )}
+      </For>
+    </View>
+  );
+}
+
+function ToastStack(props: { game: Nightbloom }) {
+  return hot.supportsParticles()
+    ? <NativeToastStack game={props.game} />
+    : <DeclarativeToastStack game={props.game} />;
 }
 
 // ---------------------------------------------------------------------------
