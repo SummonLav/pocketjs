@@ -8,7 +8,7 @@
 //
 // Two tapes:
 //   THE MARKSMAN — a full clear (~183 s): the catnip opens the night alone,
-//                  the midboss's fall rouses the healing gorilla, and the
+//                  fifty gathered moon motes rouse the healing gorilla, and
 //                  rotation walks both forms
 //                  through the pilot seat to break the diva's last card.
 //   THE SLEEPER  — nobody home (~40 s): the lone catnip dies with no form
@@ -42,7 +42,7 @@ const MARKSMAN_SECONDS = 190; // dawn settles at ~184.1 s
 const SLEEPER_SECONDS = 60; // the lone catnip falls at ~40 s
 
 // THE MARKSMAN — sweep-dodge and rotate. The switch presses no-op while a
-// form is still locked, then pick the gorilla up when the night wakes it;
+// form is still locked, then pick the gorilla up after the mote gate wakes it;
 // over the night every form flies.
 const MARKSMAN = (() => {
   const T: { at: number; press?: number; hold?: number }[] = [{ at: 1.0, press: BTN.START }];
@@ -163,8 +163,8 @@ describe("nightbloom: the night actually happened", () => {
       expect(treeHasText(t.tree, "DAWN BREAKS")).toBe(true);
       expect(treeHasText(t.tree, "THE DIVA FALLS SILENT")).toBe(true);
       // Act one: the score takes the stage (settled by the final frame).
-      expect(treeHasText(t.tree, "6890")).toBe(true);
-      expect(treeHasText(t.tree, "GRAZE: 54")).toBe(true);
+      expect(treeHasText(t.tree, "6830")).toBe(true);
+      expect(treeHasText(t.tree, "GRAZE: 48")).toBe(true);
       expect(treeHasText(t.tree, "FOES FELLED: 20")).toBe(true);
       // The whole roster woke and every form survived to see the sun.
       expect(treeHasText(t.tree, "GREATEST BLOOM: STAGE 3")).toBe(true);

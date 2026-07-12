@@ -45,6 +45,7 @@ import {
   FX_LIFE,
   MAX_ENEMY_SHOTS,
   MAX_MOTES,
+  PRIMROSE_UNLOCK_MOTES,
   STAMP_AT,
   STAMP_IMPACT,
   type EnemyShot,
@@ -765,12 +766,15 @@ function NativePlayerShotLayer(props: { game: Nightbloom }) {
   const batch = hot.createParticleBatch(28);
   const floats = batch.floats;
   const words = batch.words;
-  const offX = FIELD.x0 + 6;
-  const offY = FIELD.y0 + 6;
+  const offX = FIELD.x0 + 5;
+  const offY = FIELD.y0 + 5;
   for (let i = 0; i < batch.capacity; i++) {
     const at = i * 4;
-    floats[at + 2] = 12;
-    words[at + 3] = 0xffd4a8f9;
+    // Catnip fire owns an emerald/lime shimmer palette that no enemy family
+    // uses. Alternating fixed slots keeps it distinctive without adding a
+    // second particle pass or any per-frame color work.
+    floats[at + 2] = (i & 1) === 0 ? 10 : 8;
+    words[at + 3] = (i & 1) === 0 ? 0xffb7e76e : 0xff64f2be;
   }
   let lastTick = -1;
   const sync = () => {
@@ -1258,6 +1262,8 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
   const native = hot.supportsParticles();
   let root: NodeMirror | undefined;
   let hpFill: NodeMirror | undefined;
+  let lockedOverlay: NodeMirror | undefined;
+  let lockedProgress: NodeMirror | undefined;
   const isActive = () => g.activeIdx() === props.idx;
   const wilted = () => p.hp() <= 0;
   const cardClass = () => {
@@ -1280,12 +1286,17 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
     if (native) {
       const hp = p.hp();
       const active = isActive();
-      const state = hp <= 0 ? "wilted" : active && g.wilting() ? "danger" : active ? "active" : "idle";
+      const unlocked = p.unlocked();
+      const state = !unlocked ? "locked" : hp <= 0 ? "wilted" : active && g.wilting() ? "danger" : active ? "active" : "idle";
       if (state !== lastState) {
         lastState = state;
         hot.prop(root, "opacity", state === "wilted" ? 0.4 : 1);
         hot.prop(root, "borderColor", state === "danger" ? 0xff7171f8 : state === "active" ? 0xff4dd3fc : 0xff554133);
         hot.prop(root, "bgColor", state === "danger" || state === "active" ? 0xff3b291e : 0xff2a170f);
+        hot.prop(lockedOverlay, "opacity", unlocked ? 0 : 1);
+      }
+      if (!unlocked) {
+        hot.text(lockedProgress, `MOTES ${g.motesCollected()}/${PRIMROSE_UNLOCK_MOTES}`);
       }
       const scale = Math.max(0, hp / def.hp[p.stage() - 1]);
       if (scale !== lastHp) {
@@ -1297,7 +1308,7 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
   if (native) createEffect(syncNativeRoster);
   return (
     <Show
-      when={p.unlocked()}
+      when={native || p.unlocked()}
       fallback={
         <View class="flex-row items-center gap-1 p-1 rounded-md border border-slate-800 bg-[#0b1023] opacity-60">
           <View class="w-[20] h-[20] items-center justify-center">
@@ -1318,7 +1329,7 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
         syncNativeRoster();
       }}
     >
-      <Show when={reveal() >= 0}>
+      <Show when={!native && reveal() >= 0}>
         <View class="absolute inset-0 rounded-md overflow-hidden">
           {/* the slanted shine head */}
           <View
@@ -1372,6 +1383,18 @@ function RosterCard(props: { game: Nightbloom; idx: number; plant: PlantState })
           )}
         </View>
       </View>
+      {native && p.kind === "primrose" && (
+        <Text
+          class="absolute inset-0 text-xs text-slate-500 text-center bg-[#0b1023]"
+          nodeRef={(node) => {
+            lockedOverlay = node;
+            lockedProgress = node;
+            lastState = "";
+            syncNativeRoster();
+          }}
+          style={{ height: 28, paddingT: 7 }}
+        >MOTES 0/50</Text>
+      )}
     </View>
     </Show>
   );

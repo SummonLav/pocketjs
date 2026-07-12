@@ -153,6 +153,16 @@ const SPECS: Spec[] = [
     capN: 180,
   },
   {
+    // Moon-primrose unlock window (86..89 s): the 50th collected mote flips
+    // a pre-mounted roster card. This catches regressions that reintroduce a
+    // structural reveal or collide the unlock with the midboss defeat frame.
+    app: "nightbloom-unlock",
+    entry: "nightbloom",
+    inputScript: MARKSMAN_INPUT,
+    capStart: 5160,
+    capN: 180,
+  },
+  {
     // MIDNIGHT swarm on the marksman tape (108..111 s): the densest
     // non-boss stretch — foes + homing player shots + ~17 enemy bullets.
     app: "nightbloom-mid",

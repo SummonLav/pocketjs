@@ -277,6 +277,8 @@ export interface Nightbloom {
   /** The roast ledger: what the dawn medals tease you about. */
   escaped: Accessor<number>;
   hitsTaken: Accessor<number>;
+  /** Enemy-drop motes actually collected this run. */
+  motesCollected: Accessor<number>;
   motesMissed: Accessor<number>;
   cardTimeouts: Accessor<number>;
   px: Accessor<number>;
@@ -325,6 +327,10 @@ const STATION_TICKS = 8 * TPS;
 const WORLD_DRIFT = 10 / TPS;
 const MAX_PLAYER_SHOTS = 28;
 export const MAX_MOTES = 24;
+/** The moon primrose wakes from player-earned enemy drops, not a scripted
+ *  boss beat. The winning tape reaches 45 before the midboss falls and then
+ *  crosses 50 while collecting the scattered bounty a few seconds later. */
+export const PRIMROSE_UNLOCK_MOTES = 50;
 
 const SWITCH_TICKS = Math.round(SWITCH_COOLDOWN * TPS);
 const HURT_TICKS = Math.round(HURT_INVULN * TPS);
@@ -399,6 +405,7 @@ export function createNightbloom(options: NightbloomOptions = {}): Nightbloom {
   let rescues = 0;
   const escaped = cell(0);
   const hitsTaken = cell(0);
+  const motesCollected = cell(0);
   const motesMissed = cell(0);
   const cardTimeouts = cell(0);
   const wilting = cell(false);
@@ -489,6 +496,7 @@ export function createNightbloom(options: NightbloomOptions = {}): Nightbloom {
     rescues = 0;
     escaped.set(0);
     hitsTaken.set(0);
+    motesCollected.set(0);
     motesMissed.set(0);
     cardTimeouts.set(0);
     wilting.set(false);
@@ -715,7 +723,6 @@ export function createNightbloom(options: NightbloomOptions = {}): Nightbloom {
       if (b.mid) {
         midbossDone = true;
         if (broken) kills.set(kills() + 1);
-        unlock("primrose", "THE MOUNTAIN ANSWERS -- MOON PRIMROSE JOINS");
       } else {
         bossDone = true;
         if (broken) kills.set(kills() + 1);
@@ -1438,6 +1445,11 @@ export function createNightbloom(options: NightbloomOptions = {}): Nightbloom {
       if (dx * dx + dy * dy <= 12 * 12) {
         m.dead = true;
         removedM = true;
+        const collected = motesCollected() + 1;
+        motesCollected.set(collected);
+        if (collected === PRIMROSE_UNLOCK_MOTES) {
+          unlock("primrose", "50 MOON MOTES ANSWER -- MOON PRIMROSE JOINS");
+        }
         const p = active();
         const worth = p.kind === "primrose" ? MOTE_GLOW * 2 : MOTE_GLOW;
         grantGlow(p, worth);
@@ -1540,6 +1552,8 @@ export function createNightbloom(options: NightbloomOptions = {}): Nightbloom {
     rescues: () => rescues,
     escaped: () => escaped(),
     hitsTaken: () => hitsTaken(),
+    motesCollected: () => motesCollected(),
+    primroseUnlockedAt: () => roster.find((r) => r.kind === "primrose")?.unlockedAt() ?? -1,
     motesMissed: () => motesMissed(),
     cardTimeouts: () => cardTimeouts(),
     rosterGlow: () => roster.map((r) => ({ kind: r.kind, stage: r.stage(), hp: r.hp(), glow: Math.round(r.glow()) })),
@@ -1566,6 +1580,7 @@ export function createNightbloom(options: NightbloomOptions = {}): Nightbloom {
     bestStage,
     escaped,
     hitsTaken,
+    motesCollected,
     motesMissed,
     cardTimeouts,
     px,
